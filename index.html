@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Accueil — Formation MSP</title>
+  <meta name="description" content="Accueil de la formation MSP. Accédez aux modules et ateliers." />
+  <meta name="theme-color" content="#60a5fa" />
+
+  <style>
+    :root{
+      /* Palette alignée sur la page “Usinage — Historique” */
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      --panel:#141a2f; --border:#263046;
+      --ring:#94a3b8;
+    }
+
+    /* Base */
+    html,body{ margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap{ max-width:1100px; margin:0 auto; padding:1rem; }
+    a{ color:inherit; }
+    *{ box-sizing:border-box; }
+
+    /* Lien d’évitement */
+    .skip-link{
+      position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden;
+    }
+    .skip-link:focus{
+      position: static; width:auto; height:auto; padding:.5rem .75rem; margin:.5rem 0 0 1rem;
+      background:#0f172a; border:2px solid var(--accent); border-radius:.5rem;
+    }
+
+    /* En-tête */
+    header{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.5rem 0 1rem; }
+    .brand{ font-weight:800; letter-spacing:.2px; }
+    .brand small{ display:block; color:var(--muted); font-weight:600; font-size:.9rem; margin-top:.15rem; }
+
+    /* Panneau (carte) */
+    .panel{
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:.75rem;
+      padding:1rem;
+    }
+
+    /* Bandeau d’accueil */
+    .banner{
+      display:grid; align-content:center; min-height:220px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.03), transparent),
+        var(--panel);
+      border:1px solid var(--border);
+      border-radius:.75rem;
+      padding:clamp(1rem, 3vw, 2rem);
+    }
+    .banner h1{ margin:.25rem 0 .5rem; font-size:clamp(1.25rem, 2.8vw, 1.8rem); }
+    .banner p{ margin:.25rem 0; color:var(--muted); max-width:72ch; }
+
+    /* Grille de tuiles */
+    .tiles{ list-style:none; padding:0; margin:1rem 0 0; display:grid; gap:1rem; grid-template-columns:1fr 1fr; }
+    @media (max-width:900px){ .tiles{ grid-template-columns:1fr; } }
+
+    .tile{
+      display:block; position:relative; overflow:hidden;
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:.75rem;
+      padding:clamp(1rem, 2.2vw, 1.25rem);
+      text-decoration:none; color:inherit;
+      transition: transform .12s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;
+    }
+    .tile:focus-visible{
+      outline:2px solid var(--accent); outline-offset:3px;
+    }
+    .tile:hover{
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+      border-color:#334155;
+      background: linear-gradient(180deg, rgba(255,255,255,.02), transparent), var(--panel);
+    }
+    .tile h2{ margin:0 0 .35rem; font-size:clamp(1.05rem, 2.2vw, 1.25rem); }
+    .tile p{ margin:0; color:var(--muted); }
+    .tile .arrow{ position:absolute; right:.9rem; bottom:.8rem; color:var(--muted); transition: transform .12s ease, color .15s ease; }
+    .tile:hover .arrow, .tile:focus-visible .arrow{ transform: translateX(2px); color:var(--fg); }
+
+    /* Pied de page */
+    footer{ padding:1.5rem 0 1rem; color:var(--muted); font-size:.92rem; }
+
+    /* Réduction des animations si demandé */
+    @media (prefers-reduced-motion: reduce){
+      *{ transition:none !important; scroll-behavior:auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#contenu">Aller au contenu</a>
+
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        Formation MSP
+        <small>Qualité, contrôle statistique et ateliers interactifs</small>
+      </div>
+      <!-- Vous pouvez ajouter un lien vers une page “À propos” ou “Contact” ici si besoin -->
+    </header>
+
+    <main id="contenu" aria-labelledby="titre-accueil">
+      <!-- Bandeau -->
+      <section class="banner" aria-label="Bandeau d’accueil">
+        <h1 id="titre-accueil">Bienvenue à la formation MSP</h1>
+        <p>Objectifs&nbsp;: comprendre les fondamentaux, mettre en œuvre les contrôles par attribut et par la mesure, maîtriser les cartes MSP, et s’exercer avec des ateliers interactifs.</p>
+      </section>
+
+      <!-- Tuiles -->
+      <nav aria-label="Navigation vers les modules">
+        <ul class="tiles">
+          <li>
+            <a class="tile" href="attribut.html">
+              <h2>Atelier&nbsp;: le contrôle par attribut</h2>
+              <p>Découvrez les statistiques du contrôle par attribut avec un démineur.</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <li>
+            <a class="tile" href="mesure.html">
+              <h2>Atelier&nbsp;: le contrôle par la mesure</h2>
+              <p>Découvrez les statistiques du contrôle par la mesure avec un démineur.</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <!-- Ateliers d’usinage ci-dessous -->
+          <li>
+            <a class="tile" href="Usinage entre tolérance.html">
+              <h2>Atelier&nbsp;: usinage entre tolérance</h2>
+              <p>Explorez l’usinage entre TI et TS à travers un exercice guidé.</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <!-- Nouvelles tuiles ajoutées ici -->
+          <li>
+            <a class="tile" href="Usinage centré.html">
+              <h2>Atelier&nbsp;: usinage centré</h2>
+              <p>Visez une cible et analysez la dispersion autour de la moyenne.</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <!-- Nouvelles tuiles ajoutées ici -->
+          <li>
+            <a class="tile" href="CP.html">
+              <h2>Atelier&nbsp;: Centrage et dispersion</h2>
+              <p>Découvrez la différence entre dispersion et centrage</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          <!-- Nouvelles tuiles Vide -->
+          <li>
+          </li>
+          <!-- Nouvelles tuiles ajoutées ici -->
+          <li>
+            <a class="tile" href="Lancé 1 D.html">
+              <h2>Atelier&nbsp;: loi normale - Dés</h2>
+              <p>Distribution plate - 1 Dé</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+
+          <!-- Nouvelles tuiles ajoutées ici -->
+          <li>
+            <a class="tile" href="Planche de galton.html">
+              <h2>Atelier&nbsp;: loi normale - Planche de Galton</h2>
+              <p>Découvrez la loi normal</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+
+          <!-- Nouvelles tuiles ajoutées ici -->
+          <li>
+            <a class="tile" href="Bilan.html">
+              <h2>Bilan</h2>
+              <p>Découvrez les résultats regroupés entre tous les participants</p>
+              <span class="arrow" aria-hidden="true">→</span>
+            </a>
+          </li>
+          
+        </ul>
+      </nav>
+    </main>
+
+    <footer>
+      © <time id="y"></time> — Accueil formation MSP
+    </footer>
+  </div>
+
+  <script>
+    // Année courante dans le footer
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
