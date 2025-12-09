@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mesures > 2 — jeu statistique</title>
+  <meta name="description" content="Cliquez des tuiles jusqu’à trouver la première mesure > 2. Historique des essais et moyenne observée. N=100 (10×10). Répartition aléatoire à chaque partie." />
+  <style>
+    :root {
+      --bg: #0b1020; --fg: #e5e7eb; --muted:#a3b1c6;
+      --surface:#141a2f; --accent:#60a5fa; --ok:#22c55e; --err:#f87171; --warn:#f59e0b;
+    }
+    html,body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,Segoe UI,Roboto,Arial; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    h1 { font-size: 1.6rem; margin: .5rem 0 1rem; }
+    .controls { display: grid; gap: .75rem; grid-template-columns: repeat(6, minmax(0,1fr)); align-items: end; }
+    .btn { padding:.6rem .9rem; border-radius:.5rem; border:1px solid var(--accent); color:var(--accent); background:transparent; cursor:pointer; font-weight:600; }
+    .btn.primary { background:var(--accent); color:#0b1020; border-color:var(--accent); }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .muted { color:var(--muted); }
+    .stats { display:flex; gap:1rem; flex-wrap:wrap; margin:.75rem 0; font-size:.95rem; }
+    .stat { background:var(--surface); padding:.5rem .75rem; border-radius:.5rem; border:1px solid #263046; }
+    .board {
+      margin-top: 1rem;
+      display: grid; gap: 6px;
+      grid-template-columns: repeat(10, 1fr); /* 10 x 10 */
+      background: linear-gradient(180deg, rgba(255,255,255,.03), transparent);
+      padding: 6px; border-radius: .75rem; border:1px solid #263046;
+    }
+    .tile {
+      aspect-ratio: 1 / 1;
+      background:#0f172a;
+      border:1px solid #334155;
+      border-radius:.4rem;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; font-weight:700; user-select:none;
+      transition: transform .05s ease-in-out, background .15s, border-color .15s;
+      position: relative;
+      color:#93c5fd;
+    }
+    .tile:active { transform: scale(0.98); }
+    .tile.revealed.safe { background:#12213d; color:#93c5fd; }
+    .tile.revealed.bomb { background:#3a1620; color:var(--err); border-color:#4b1a25; }
+    /* Aperçu (afficher/masquer) des mesures > 2 sans révéler */
+    .tile.has-bomb::after {
+      content: '> 2';
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .12s ease-in-out;
+      pointer-events: none; font-size: 16px;
+      filter: saturate(0.8); color: var(--err);
+    }
+    .show-bombs .tile.has-bomb:not(.revealed)::after { opacity: 0.55; }
+    .badge { display:inline-block; padding:.1rem .4rem; border-radius:.4rem; font-size:.8rem; background:rgba(96,165,250,.18); color:#93c5fd; }
+    @media (max-width: 720px) {
+      .controls { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    .back-link,
+    .back-link:visited { color: #fff; }
+    .back-link:hover,
+    .back-link:focus-visible { color: #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
+    <h1>Mesures — trouver la première valeur > 2</h1>
+
+    <div class="controls" aria-label="Actions">
+      <button id="startBtn" class="btn primary">Lancer le jeu</button>
+      <button id="resetBtn" class="btn">Réinitialiser</button>
+      <button id="copyHistoryBtn" class="btn">Copier l’historique</button>
+      <button id="clearHistoryBtn" class="btn">Effacer l’historique</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat">Essais (partie en cours): <strong id="currentTries">0</strong></div>
+      <div class="stat">Parties jouées: <strong id="gamesCount">0</strong></div>
+      <div class="stat">Moyenne observée: <strong id="avg">—</strong></div>
+      <div class="stat"><span id="status" class="badge">Prêt</span></div>
+      <button id="peekBtn" class="btn" disabled>Afficher les &gt; 2</button>
+    </div>
+
+    <div id="board" class="board" role="grid" aria-label="Grille de mesures (10 par 10)"></div>
+
+    <div style="margin-top:1rem;">
+      <div class="help muted">Historique: nombre d’essais par partie jusqu’à la 1re mesure &gt; 2</div>
+      <ol id="historyList" class="help" style="padding-left:1.25rem;"></ol>
+    </div>
+  </div>
+
+  <script>
+    // Données source: 10×10 mesures (N=100). Elles seront mélangées à chaque partie.
+    const ORIGINAL_MEASURES = [
+      1.83,1.76,1.91,1.72,1.88,1.69,1.95,1.79,2.02,1.74,
+      1.84,1.66,1.86,1.77,1.93,1.71,1.82,2.02,1.97,1.75,
+      1.90,1.80,1.73,1.85,1.78,1.94,1.70,1.92,1.89,1.81,
+      1.65,1.88,1.76,1.83,1.72,1.96,1.87,1.74,1.99,1.77,
+      1.60,1.84,1.67,1.86,1.91,1.75,2.01,1.82,1.71,1.93,
+      1.52,1.79,2.05,1.90,1.68,1.85,1.78,1.72,1.88,1.81,
+      1.55,1.74,1.66,1.83,1.77,1.94,1.69,1.80,1.92,2.03,
+      1.73,1.76,1.62,1.89,1.71,1.84,1.70,1.87,1.95,1.82,
+      1.58,1.75,1.64,1.86,1.72,1.79,1.91,1.68,2.00,1.78,
+      1.45,1.73,1.60,1.88,1.67,1.85,1.93,1.74,2.00,1.76
+    ];
+    const THRESHOLD = 2.0;
+    const N = ORIGINAL_MEASURES.length;
+
+    // Utilitaires DOM & stockage
+    const $ = (sel, ctx=document) => ctx.querySelector(sel);
+    const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
+    const store = {
+      get(key, fallback=null){ try{ return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+      set(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+    };
+
+    const HISTORY_KEY = 'mesures:history:v2'; // stocke un tableau de nombres (essais)
+
+    // Éléments
+    const board = $('#board');
+    const startBtn = $('#startBtn');
+    const resetBtn = $('#resetBtn');
+    const peekBtn = $('#peekBtn');
+    const copyHistoryBtn = $('#copyHistoryBtn');
+    const clearHistoryBtn = $('#clearHistoryBtn');
+    const currentTriesEl = $('#currentTries');
+    const gamesCountEl = $('#gamesCount');
+    const avgEl = $('#avg');
+    const statusEl = $('#status');
+    const historyList = $('#historyList');
+
+    // État
+    let state = {
+      measures: [],       // ordre mélangé pour la partie en cours
+      highSet: new Set(), // indices où mesure > seuil
+      revealed: new Set(),
+      tries: 0,
+      over: false,
+      showBombs: false
+    };
+
+    // Helpers
+    function setStatus(text, kind='info') {
+      statusEl.textContent = text;
+      statusEl.style.background = kind==='ok' ? 'rgba(34,197,94,.18)' :
+                                  kind==='err' ? 'rgba(248,113,113,.18)' :
+                                  kind==='warn'? 'rgba(245,158,11,.18)' :
+                                  'rgba(96,165,250,.18)';
+      statusEl.style.color = kind==='ok' ? 'var(--ok)' :
+                             kind==='err' ? 'var(--err)' :
+                             kind==='warn'? 'var(--warn)': '#93c5fd';
+    }
+    const fmt = v => v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    function shuffle(a) {
+      // Fisher-Yates shuffle (in place)
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function loadHistory() {
+      return store.get(HISTORY_KEY, []); // tableau de nombres (essais)
+    }
+    function saveRun(tries) {
+      const h = loadHistory();
+      h.push(Number(tries));
+      if (h.length > 5000) h.splice(0, h.length - 5000);
+      store.set(HISTORY_KEY, h);
+      renderHistory();
+    }
+    function clearHistory() {
+      store.set(HISTORY_KEY, []);
+      renderHistory();
+    }
+    function renderHistory() {
+      const h = loadHistory();
+      gamesCountEl.textContent = h.length;
+      if (h.length === 0) {
+        avgEl.textContent = '—';
+        historyList.innerHTML = '';
+        return;
+      }
+      const sum = h.reduce((s, v) => s + v, 0);
+      const avg = sum / h.length;
+      avgEl.textContent = avg.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+      // Afficher les 20 plus récentes (la plus récente en premier)
+      const last = h.slice(-20).reverse();
+      historyList.innerHTML = last.map(v => `<li>${v}</li>`).join('');
+    }
+    function copyHistoryToClipboard() {
+      const h = loadHistory();
+      const text = h.join('\n'); // uniquement les nombres
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(
+          () => setStatus('Historique copié dans le presse-papiers.', 'ok'),
+          () => fallbackCopy(text)
+        );
+      } else {
+        fallbackCopy(text);
+      }
+      function fallbackCopy(t) {
+        const ta = document.createElement('textarea');
+        ta.value = t;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          setStatus('Historique copié dans le presse-papiers.', 'ok');
+        } catch {
+          setStatus('Impossible de copier (droits du navigateur).', 'warn');
+        } finally {
+          document.body.removeChild(ta);
+        }
+      }
+    }
+
+    // Grille
+    function buildBoard() {
+      board.innerHTML = '';
+      for (let i = 0; i < N; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tile';
+        btn.setAttribute('role', 'gridcell');
+        btn.setAttribute('aria-label', 'Tuile ' + (i+1));
+        btn.dataset.idx = i;
+        board.appendChild(btn);
+      }
+    }
+    function computeHighSet() {
+      const set = new Set();
+      for (let i = 0; i < N; i++) if (state.measures[i] > THRESHOLD) set.add(i);
+      return set;
+    }
+    function tagHighTiles() {
+      // Ajouter la classe has-bomb aux cases avec mesure > seuil (aperçu)
+      $$('.tile', board).forEach(btn => {
+        const idx = Number(btn.dataset.idx);
+        btn.classList.toggle('has-bomb', state.highSet.has(idx));
+      });
+    }
+    function updatePeek() {
+      board.classList.toggle('show-bombs', state.showBombs);
+      peekBtn.textContent = state.showBombs ? 'Masquer les > 2' : 'Afficher les > 2';
+    }
+
+    // Jeu
+    function startGame() {
+      // Préparer une nouvelle partie: mélanger les mesures
+      state.measures = shuffle([...ORIGINAL_MEASURES]);
+      state.highSet = computeHighSet();
+
+      state.revealed = new Set();
+      state.tries = 0;
+      state.over = false;
+      state.showBombs = false;
+      currentTriesEl.textContent = '0';
+      setStatus('Partie en cours. Cliquez une tuile…');
+
+      buildBoard();
+      tagHighTiles();
+      updatePeek();
+
+      startBtn.disabled = true;
+      peekBtn.disabled = false;
+    }
+
+    function resetGame() {
+      // Relance une nouvelle partie avec une nouvelle répartition aléatoire
+      startBtn.disabled = false;
+      startGame();
+    }
+
+    function revealAllBombs() {
+      // Révèle toutes les mesures > seuil et désactive la grille
+      $$('.tile', board).forEach(btn => {
+        const idx = Number(btn.dataset.idx);
+        if (state.highSet.has(idx)) {
+          btn.classList.add('revealed', 'bomb');
+          btn.textContent = fmt(state.measures[idx]);
+        }
+        btn.disabled = true;
+      });
+    }
+
+    function onTileClick(e) {
+      const btn = e.target.closest('.tile');
+      if (!btn) return;
+      if (state.over) return;
+
+      const idx = Number(btn.dataset.idx);
+      if (state.revealed.has(idx)) return;
+
+      state.revealed.add(idx);
+      state.tries += 1;
+      currentTriesEl.textContent = String(state.tries);
+
+      const val = state.measures[idx];
+      const isHigh = val > THRESHOLD;
+
+      if (isHigh) {
+        btn.classList.add('revealed', 'bomb');
+        btn.textContent = fmt(val);
+        state.over = true;
+        revealAllBombs();
+        setStatus(`Mesure > 2 trouvée en ${state.tries} essais.`, 'ok');
+        saveRun(state.tries);
+        startBtn.disabled = false; // autoriser une nouvelle partie
+        peekBtn.disabled = false;  // on peut toujours afficher/masquer l’aperçu
+      } else {
+        btn.classList.add('revealed', 'safe');
+        btn.textContent = fmt(val);
+      }
+    }
+
+    // Événements
+    board.addEventListener('click', onTileClick);
+    startBtn.addEventListener('click', startGame);
+    resetBtn.addEventListener('click', resetGame);
+    peekBtn.addEventListener('click', () => {
+      state.showBombs = !state.showBombs;
+      updatePeek();
+    });
+    clearHistoryBtn.addEventListener('click', () => {
+      if (confirm('Effacer l’historique des parties ?')) clearHistory();
+    });
+    copyHistoryBtn.addEventListener('click', copyHistoryToClipboard);
+
+    // Initialisation
+    renderHistory();
+    buildBoard();
+    setStatus('Prêt');
+    peekBtn.disabled = true; // pas d’aperçu avant d’avoir lancé une partie
+  </script>
+</body>
+</html>

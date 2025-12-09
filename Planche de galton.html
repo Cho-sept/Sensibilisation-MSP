@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planche de Galton — Classique + Troncage/Biais</title>
+  <meta name="theme-color" content="#60a5fa" />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      --panel:#141a2f; --border:#263046;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:1rem}
+    a.back, a.back:visited{color:#fff;text-decoration:none}
+    a.back:hover, a.back:focus-visible{color:#e5e7eb;outline:2px solid #e5e7eb;outline-offset:2px}
+    h1{font-size:1.4rem;margin:.5rem 0 1rem}
+
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.75rem;padding:1rem}
+    .muted{color:var(--muted)}
+    .btn{padding:.7rem .9rem;border-radius:.5rem;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;font-weight:700}
+    .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+    .btn.alert{border-color:var(--err);color:var(--err)}
+    .btn:hover,.btn:focus-visible{filter:brightness(1.08)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn-row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+
+    .stats{display:flex;gap:1rem;flex-wrap:wrap;margin:.75rem 0}
+    .chip{background:rgba(96,165,250,.16);padding:.4rem .6rem;border-radius:.5rem;border:1px solid var(--border);min-width:12ch}
+
+    /* Tabs */
+    .tabs{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0 1rem}
+    .tab-btn{
+      padding:.55rem .8rem;border-radius:.6rem;border:1px solid #334155;background:#0f172a;color:#cbd5e1;font-weight:700;cursor:pointer
+    }
+    .tab-btn[aria-selected="true"]{border-color:var(--accent);color:#0b1020;background:var(--accent)}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+
+    /* SVG board */
+    .board{width:100%;height:auto;display:block}
+    .peg{fill:#8da2c9;stroke:#334155;stroke-width:1}
+    .bin{fill:#0f172a;stroke:#334155;stroke-width:1}
+    .ball{fill:#93c5fd;stroke:#1d4ed8;stroke-width:.8}
+    .funnel{fill:#0f172a;stroke:#334155;stroke-width:1}
+
+    /* Répartition alignée sous la planche */
+    .dist-svg{width:100%;height:auto;display:block}
+    /* .dist-slot supprimé visuellement (mais on ne les crée plus de toute façon) */
+    .dist-frame{fill:#0f172a;stroke:#334155;stroke-width:1}
+    .dist-fill{transition:all .25s ease}
+    .dist-count{fill:#e5e7eb;font:800 14px/1 system-ui;text-anchor:middle}
+    .dist-index{fill:#a3b1c6;font:700 12px/1 system-ui;text-anchor:middle}
+
+    /* Masques visuels pour troncature (zones grisées) */
+    .dist-mask{ fill: rgba(148,163,184,0.16); }
+
+    @media (prefers-reduced-motion: reduce){
+      *{transition:none !important;scroll-behavior:auto !important}
+    }
+
+    /* on cache les messages sous les compteurs */
+    #c_lastMsg,
+    #t_lastMsg{
+      display:none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a class="back" href="index.html">← Retour à l’accueil</a></p>
+    <h1>Planche de Galton — Classique et Troncage/Biais</h1>
+
+    <div class="tabs" role="tablist" aria-label="Sélection du mode">
+      <button class="tab-btn" role="tab" id="tab-classic" aria-controls="panel-classic" aria-selected="true">Classique</button>
+      <button class="tab-btn" role="tab" id="tab-tronc" aria-controls="panel-tronc" aria-selected="false">Troncage / Biais</button>
+    </div>
+
+    <!-- Onglet 1: Classique -->
+    <section id="panel-classic" class="tab-panel active panel" role="tabpanel" aria-labelledby="tab-classic">
+      <div class="btn-row" style="margin-bottom:.5rem">
+        <button class="btn primary" id="c_launch1">Lancer 1</button>
+        <button class="btn primary" id="c_launch5">Lancer 5</button>
+        <button class="btn primary" id="c_launch10">Lancer 10</button>
+        <button class="btn primary" id="c_launch100">Lancer 100</button>
+        <button class="btn primary" id="c_launch1000">Lancer 1000</button>
+        <span style="margin-left:auto;"></span>
+        <label class="muted" for="c_speed" style="display:flex;align-items:center;gap:.5rem">
+          Vitesse
+          <input id="c_speed" type="range" min="0.6" max="2.2" step="0.1" value="1.0" style="width:180px;">
+        </label>
+        <button class="btn alert" id="c_reset">Réinitialiser</button>
+      </div>
+
+      <svg id="c_board" class="board" viewBox="0 0 760 520" role="img" aria-label="Planche de Galton (classique)"></svg>
+
+      <!-- Répartition -->
+      <svg id="c_dist" class="dist-svg" viewBox="0 0 760 190" role="img" aria-label="Répartition (classique)">
+        <defs>
+          <linearGradient id="c_distGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#22c55e"/>
+            <stop offset="100%" stop-color="#60a5fa"/>
+          </linearGradient>
+        </defs>
+      </svg>
+
+      <div class="stats">
+        <div class="chip">Billes lancées: <strong id="c_nLaunched">0</strong></div>
+        <div class="chip">Arrivées: <strong id="c_nFinished">0</strong></div>
+        <div class="chip">Rangées: <strong id="c_rowsLabel">—</strong></div>
+      </div>
+      <p id="c_lastMsg" class="muted" aria-live="polite"></p>
+    </section>
+
+    <!-- Onglet 2: Troncage/Biais -->
+    <section id="panel-tronc" class="tab-panel panel" role="tabpanel" aria-labelledby="tab-tronc">
+      <div class="btn-row" style="margin-bottom:.5rem">
+        <button class="btn primary" id="t_launch1">Lancer 1</button>
+        <button class="btn primary" id="t_launch5">Lancer 5</button>
+        <button class="btn primary" id="t_launch10">Lancer 10</button>
+        <button class="btn primary" id="t_launch100">Lancer 100</button>
+        <button class="btn primary" id="t_launch1000">Lancer 1000</button>
+        <span style="margin-left:auto;"></span>
+        <label class="muted" for="t_speed" style="display:flex;align-items:center;gap:.5rem">
+          Vitesse
+          <input id="t_speed" type="range" min="0.6" max="2.2" step="0.1" value="1.0" style="width:180px;">
+        </label>
+        <button class="btn alert" id="t_reset">Réinitialiser</button>
+      </div>
+
+      <!-- Contrôles de troncature / décalage / 2 populations -->
+      <div class="panel" style="margin:.75rem 0;">
+        <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:center">
+          <strong>Troncature</strong>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            Activer
+            <input id="t_trunc_on" type="checkbox">
+          </label>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            minBin
+            <input id="t_trunc_min" type="number" min="0" max="10" step="1" value="0" style="width:80px;">
+          </label>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            maxBin
+            <input id="t_trunc_max" type="number" min="0" max="10" step="1" value="10" style="width:80px;">
+          </label>
+
+          <span style="width:2px;height:28px;background:#334155;opacity:.5;"></span>
+
+          <strong>Décalage</strong>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            biais droite
+            <input id="t_bias" type="range" min="-0.49" max="0.49" step="0.01" value="0" style="width:180px;">
+            <span id="t_bias_val" style="min-width:6ch;display:inline-block;text-align:right;">0.00</span>
+          </label>
+
+          <span style="width:2px;height:28px;background:#334155;opacity:.5;"></span>
+
+          <strong>2 populations</strong>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            Activer
+            <input id="t_mix_on" type="checkbox">
+          </label>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            part B
+            <input id="t_mix_pB" type="range" min="0" max="1" step="0.01" value="0.50" style="width:140px;">
+            <span id="t_mix_pB_val" style="min-width:5ch;display:inline-block;text-align:right;">0.50</span>
+          </label>
+          <label class="muted" style="display:flex;align-items:center;gap:.5rem;">
+            δ (biais B = +δ ; A = −δ)
+            <input id="t_mix_delta" type="range" min="0" max="0.49" step="0.01" value="0.20" style="width:140px;">
+            <span id="t_mix_delta_val" style="min-width:5ch;display:inline-block;text-align:right;">0.20</span>
+          </label>
+        </div>
+      </div>
+
+      <svg id="t_board" class="board" viewBox="0 0 760 520" role="img" aria-label="Planche de Galton (troncage/biais)"></svg>
+
+      <!-- Répartition -->
+      <svg id="t_dist" class="dist-svg" viewBox="0 0 760 190" role="img" aria-label="Répartition (troncage/biais)">
+        <defs>
+          <linearGradient id="t_distGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#22c55e"/>
+            <stop offset="100%" stop-color="#60a5fa"/>
+          </linearGradient>
+        </defs>
+      </svg>
+
+      <div class="stats">
+        <div class="chip">Billes lancées: <strong id="t_nLaunched">0</strong></div>
+        <div class="chip">Arrivées: <strong id="t_nFinished">0</strong></div>
+        <div class="chip">Rangées: <strong id="t_rowsLabel">—</strong></div>
+      </div>
+      <p id="t_lastMsg" class="muted" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <script>
+    // Tabs
+    const $ = (s, ctx=document)=>ctx.querySelector(s);
+    const tabs = [
+      {btn: $('#tab-classic'), panel: $('#panel-classic'), key: 'classic'},
+      {btn: $('#tab-tronc'),   panel: $('#panel-tronc'),   key: 'tronc'}
+    ];
+    function setTab(key){
+      tabs.forEach(t=>{
+        const active = (t.key === key);
+        t.btn.setAttribute('aria-selected', active?'true':'false');
+        t.panel.classList.toggle('active', active);
+      });
+      localStorage.setItem('galton:tab', key);
+    }
+    tabs.forEach(t=> t.btn.addEventListener('click', ()=> setTab(t.key)));
+    setTab(localStorage.getItem('galton:tab') || 'classic');
+
+    // Géométrie partagée
+    const W = 760, H = 520;
+    const m = {l:60, r:60, t:30, b:40};
+    const PW = W - m.l - m.r, PH = H - m.t - m.b;
+
+    const ROWS = 10;
+    const PEG_R = 5.5;
+    const BALL_R = 5.2;
+    const Sx = 50;
+    const Sy = 40;
+
+    const CX = m.l + PW/2;
+    const TOP_Y = m.t + 40;
+    const BINS_TOP = TOP_Y + ROWS * Sy + 26;
+    const BINS_HEIGHT = 120;
+    const BINS_COUNT = ROWS + 1;
+
+    // Fabrique d'une app Planche (generic)
+    function createGaltonApp(prefix, {withControls=false, withTronc=false}={}){
+      const board   = $(`#${prefix}_board`);
+      const distSvg = $(`#${prefix}_dist`);
+      const rowsLabel = $(`#${prefix}_rowsLabel`);
+      const nLaunchedEl = $(`#${prefix}_nLaunched`);
+      const nFinishedEl = $(`#${prefix}_nFinished`);
+      const lastMsg = $(`#${prefix}_lastMsg`);
+      const speedInput = $(`#${prefix}_speed`);
+
+      const btns = {
+        launch1: $(`#${prefix}_launch1`),
+        launch5: $(`#${prefix}_launch5`),
+        launch10: $(`#${prefix}_launch10`),
+        launch100: $(`#${prefix}_launch100`),
+        launch1000: $(`#${prefix}_launch1000`),
+        reset: $(`#${prefix}_reset`)
+      };
+
+      const pegs = [];
+      const bins = [];
+      let balls = [];
+      let nLaunched = 0, nFinished = 0;
+      let speedFactor = 1.0;
+
+      // Troncage/Biais options (persistées) pour panel 't'
+      const isTroncPanel = (prefix === 't' && withTronc);
+      const LS_KEY = `galton:${prefix}:opts`;
+      const defaultOpts = {
+        trunc: { on:false, minBin:0, maxBin:ROWS },
+        bias: 0,
+        mix: { on:false, pB:0.5, delta:0.20 }
+      };
+      const optsRaw = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      const opts = {
+        trunc: Object.assign({}, defaultOpts.trunc, optsRaw.trunc || {}),
+        bias: (typeof optsRaw.bias === 'number') ? optsRaw.bias : defaultOpts.bias,
+        mix: Object.assign({}, defaultOpts.mix, optsRaw.mix || {})
+      };
+      function saveOpts(){ localStorage.setItem(LS_KEY, JSON.stringify(opts)); }
+      function clampInt(v, lo, hi){ return Math.max(lo, Math.min(hi, Math.round(v))); }
+      function fixMinMax(){
+        if (opts.trunc.minBin > opts.trunc.maxBin){
+          const mid = Math.round((opts.trunc.minBin + opts.trunc.maxBin)/2);
+          opts.trunc.minBin = mid; opts.trunc.maxBin = mid;
+          if (w.trMin) w.trMin.value = mid;
+          if (w.trMax) w.trMax.value = mid;
+        }
+      }
+
+      // Widgets (panel tronc)
+      let w = {};
+      if (isTroncPanel){
+        w.trOn = document.getElementById('t_trunc_on');
+        w.trMin= document.getElementById('t_trunc_min');
+        w.trMax= document.getElementById('t_trunc_max');
+        w.bias = document.getElementById('t_bias');
+        w.biasVal = document.getElementById('t_bias_val');
+        w.mixOn = document.getElementById('t_mix_on');
+        w.mixPB = document.getElementById('t_mix_pB');
+        w.mixPBVal = document.getElementById('t_mix_pB_val');
+        w.mixDelta = document.getElementById('t_mix_delta');
+        w.mixDeltaVal = document.getElementById('t_mix_delta_val');
+
+        // Init UI from opts
+        w.trOn.checked = !!opts.trunc.on;
+        w.trMin.value = opts.trunc.minBin;
+        w.trMax.value = opts.trunc.maxBin;
+        w.bias.value = opts.bias;
+        w.biasVal.textContent = Number(opts.bias).toFixed(2);
+        w.mixOn.checked = !!opts.mix.on;
+        w.mixPB.value = opts.mix.pB;
+        w.mixPBVal.textContent = Number(opts.mix.pB).toFixed(2);
+        w.mixDelta.value = opts.mix.delta;
+        w.mixDeltaVal.textContent = Number(opts.mix.delta).toFixed(2);
+
+        // Listeners
+        w.trOn.addEventListener('change', ()=>{ opts.trunc.on = w.trOn.checked; saveOpts(); updateDistMask(); });
+        w.trMin.addEventListener('input', ()=>{ opts.trunc.minBin = clampInt(+w.trMin.value, 0, ROWS); fixMinMax(); saveOpts(); updateDistMask(); });
+        w.trMax.addEventListener('input', ()=>{ opts.trunc.maxBin = clampInt(+w.trMax.value, 0, ROWS); fixMinMax(); saveOpts(); updateDistMask(); });
+
+        w.bias.addEventListener('input', ()=>{
+          opts.bias = +w.bias.value;
+          w.biasVal.textContent = Number(opts.bias).toFixed(2);
+          saveOpts();
+        });
+
+        w.mixOn.addEventListener('change', ()=>{ opts.mix.on = w.mixOn.checked; saveOpts(); });
+        w.mixPB.addEventListener('input', ()=>{
+          opts.mix.pB = +w.mixPB.value;
+          w.mixPBVal.textContent = Number(opts.mix.pB).toFixed(2);
+          saveOpts();
+        });
+        w.mixDelta.addEventListener('input', ()=>{
+          opts.mix.delta = +w.mixDelta.value;
+          w.mixDeltaVal.textContent = Number(opts.mix.delta).toFixed(2);
+          saveOpts();
+        });
+      }
+
+      // SVG helper
+      function el(name, attrs={}){
+        const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+        for (const k in attrs){ e.setAttribute(k, attrs[k]); }
+        return e;
+      }
+
+      // Dist masks (visuels tronc)
+      let distMaskLeft = null, distMaskRight = null;
+      function binX(i){ return bins[i].x; }
+      function binW(i){ return bins[i].w; }
+      function updateDistMask(){
+        if (!isTroncPanel){ return; }
+        const svgH = 190;
+        if (!opts.trunc.on){
+          if (distMaskLeft){ distMaskLeft.setAttribute('width', 0); }
+          if (distMaskRight){ distMaskRight.setAttribute('width', 0); }
+          return;
+        }
+        // Masque gauche: tout ce qui est avant minBin
+        const leftX = binX(0);
+        const leftW = (opts.trunc.minBin > 0) ? (binX(opts.trunc.minBin) - binX(0)) : 0;
+        distMaskLeft?.setAttribute('x', leftX);
+        distMaskLeft?.setAttribute('y', 0);
+        distMaskLeft?.setAttribute('width', Math.max(0,leftW));
+        distMaskLeft?.setAttribute('height', svgH);
+
+        // Masque droit: tout ce qui est après maxBin
+        const rightX = (opts.trunc.maxBin < ROWS) ? (binX(opts.trunc.maxBin) + binW(opts.trunc.maxBin)) : (binX(ROWS) + binW(ROWS));
+        const rightW = Math.max(0, (binX(ROWS) + binW(ROWS)) - rightX);
+        distMaskRight?.setAttribute('x', rightX);
+        distMaskRight?.setAttribute('y', 0);
+        distMaskRight?.setAttribute('width', rightW);
+        distMaskRight?.setAttribute('height', svgH);
+      }
+
+      function buildBoard(){
+        board.innerHTML = '';
+        // Cadre
+        board.appendChild(el('rect', { x:m.l, y:m.t, width:PW, height:PH, fill:'none', stroke:'rgba(148,163,184,.32)' }));
+        // Entonnoir
+        const funnelW = Sx*2.2;
+        board.appendChild(el('rect', { x: CX - funnelW/2, y: TOP_Y - 28, width: funnelW, height: 22, class:'funnel' }));
+        board.appendChild(el('rect', { x: CX - 6, y: TOP_Y - 6, width: 12, height: 14, class:'funnel' }));
+
+        // Chevilles
+        pegs.length = 0;
+        for (let r=0; r<ROWS; r++){
+          const n = r+1;
+          const y = TOP_Y + r*Sy;
+          const x0 = CX - (r * Sx)/2;
+          for (let c=0; c<n; c++){
+            const x = x0 + c*Sx;
+            board.appendChild(el('circle', { cx:x, cy:y, r:PEG_R, class:'peg' }));
+            pegs.push({x,y,row:r,col:c});
+          }
+        }
+
+        // Bacs
+        bins.length = 0;
+        const yTop = BINS_TOP;
+        const yBase = yTop + BINS_HEIGHT;
+        const x0 = CX - (ROWS * Sx)/2;
+        for (let i=0; i<BINS_COUNT; i++){
+          const xCenter = x0 + i*Sx;
+          const w = Sx - 8;
+          const xRect = xCenter - w/2;
+          bins.push({ x:xRect, y:yTop, w, h:BINS_HEIGHT, center:xCenter, yBase, count:0 });
+          board.appendChild(el('rect', { x:xRect, y:yTop, width:w, height:BINS_HEIGHT, rx:6, ry:6, class:'bin' }));
+        }
+
+        if (rowsLabel) rowsLabel.textContent = ROWS;
+
+        buildDist();
+        updateDist();
+      }
+
+      function buildDist(){
+        distSvg.innerHTML = '';
+        const defs = el('defs');
+        const grad = el('linearGradient',{ id:`${prefix}_distGrad`, x1:'0',y1:'0',x2:'0',y2:'1' });
+        grad.appendChild(el('stop',{ offset:'0%', 'stop-color':'#22c55e'}));
+        grad.appendChild(el('stop',{ offset:'100%','stop-color':'#60a5fa'}));
+        defs.appendChild(grad);
+        distSvg.appendChild(defs);
+
+        const slotY = 30;      // (plus utilisé pour slot, mais garde l'espacement vertical)
+        const binY  = 56;
+        const binH  = 110;
+        const countY= binY + binH + 20;
+        const idxY  = countY + 18;
+        const topIdxY = slotY - 8; // indices au-dessus
+
+        for (let i=0;i<bins.length;i++){
+          const b = bins[i];
+
+          // plus de dist-slot
+          const frame= el('rect', { x:b.x, y:binY, width:b.w, height:binH, rx:7, ry:7, class:'dist-frame' });
+          const fill = el('rect', { x:b.x, y:binY + binH, width:b.w, height:0, class:'dist-fill', fill:`url(#${prefix}_distGrad)` });
+
+          const count = el('text', { x:b.center, y:countY, class:'dist-count' });
+          count.textContent = '0';
+
+          const idx = el('text', { x:b.center, y:idxY, class:'dist-index' });
+          idx.textContent = String(i);
+
+          const topIdx = el('text', { x:b.center, y:topIdxY, class:'dist-index' });
+          topIdx.textContent = String(i);
+
+          distSvg.appendChild(frame);
+          distSvg.appendChild(fill);
+          distSvg.appendChild(count);
+          distSvg.appendChild(idx);
+          distSvg.appendChild(topIdx);
+        }
+
+        // Masques visuels tronc
+        if (isTroncPanel){
+          distMaskLeft  = el('rect', { x:0, y:0, width:0, height:190, class:'dist-mask' });
+          distMaskRight = el('rect', { x:0, y:0, width:0, height:190, class:'dist-mask' });
+          distSvg.appendChild(distMaskLeft);
+          distSvg.appendChild(distMaskRight);
+        }
+      }
+
+      function updateDist(){
+        const counts = bins.map(b=>b.count);
+        const maxCount = Math.max(1, ...counts);
+
+        const binY  = 56;
+        const binH  = 110;
+        const fills  = distSvg.querySelectorAll('.dist-fill');
+        const countsEls = distSvg.querySelectorAll('.dist-count');
+
+        for (let i=0;i<bins.length;i++){
+          const val = counts[i];
+          const h = (val / maxCount) * binH;
+          const y = binY + binH - h;
+          const f = fills[i];
+          f.setAttribute('y', y);
+          f.setAttribute('height', h);
+          countsEls[i].textContent = String(val);
+        }
+
+        updateDistMask();
+      }
+
+      // Simulation
+      function spawnBalls(n){
+        const stagger = 55;
+        for (let i=0;i<n; i++) setTimeout(()=> createBall(), i*stagger);
+        nLaunched += n;
+        if (nLaunchedEl) nLaunchedEl.textContent = nLaunched;
+        if (lastMsg) lastMsg.textContent = `Lancement de ${n} bille${n>1?'s':''}…`;
+      }
+
+      function createBall(){
+        const startX = CX, startY = TOP_Y - 18;
+        const ballEl = el('circle', { cx:startX, cy:startY, r:BALL_R, class:'ball' });
+        board.appendChild(ballEl);
+
+        const ball = {
+          el: ballEl, row: -1, col: 0,
+          x: startX, y: startY, tx: CX, ty: TOP_Y,
+          t: 0, dur: 320 / speedFactor,
+          finished: false, willFinish: false,
+          sx: null, sy: null,
+          bias: 0
+        };
+
+        // Biais pour panel tronc: global ou mix 2 populations
+        if (isTroncPanel){
+          if (opts.mix.on){
+            const inB = (Math.random() < opts.mix.pB);
+            ball.bias = inB ? +opts.mix.delta : -opts.mix.delta;
+          } else {
+            ball.bias = opts.bias || 0;
+          }
+        }
+
+        balls.push(ball);
+      }
+
+      // Décision gauche/droite avec biais
+      function branchWithBias(ball, row, col){
+        let p = 0.5 + (ball.bias || 0);
+        if (p < 0.01) p = 0.01;
+        if (p > 0.99) p = 0.99;
+        return (Math.random() < p) ? 1 : 0; // 1=droite, 0=gauche
+      }
+
+      function nextTarget(ball){
+        if (ball.row < 0){
+          ball.row = 0; ball.col = 0;
+          const peg = pegAt(ball.row, ball.col);
+          setTarget(ball, peg.x, peg.y);
+          return;
+        }
+        if (ball.row < ROWS-1){
+          const dir = branchWithBias(ball, ball.row, ball.col);
+          const nextRow = ball.row + 1;
+          const nextCol = Math.max(0, Math.min(nextRow, ball.col + dir));
+          ball.row = nextRow; ball.col = nextCol;
+          const peg = pegAt(ball.row, ball.col);
+          setTarget(ball, peg.x, peg.y);
+        } else {
+          const dir = branchWithBias(ball, ball.row, ball.col);
+          let binIndex = ball.col + (dir ? 1 : 0);
+
+          // Troncature sur bac final
+          if (isTroncPanel && opts.trunc.on){
+            binIndex = Math.max(opts.trunc.minBin, Math.min(opts.trunc.maxBin, binIndex));
+          }
+
+          binIndex = Math.max(0, Math.min(BINS_COUNT-1, binIndex));
+          const bin = bins[binIndex];
+          const yRest = bin.yBase - 6;
+          setTarget(ball, bin.center, yRest);
+          ball.willFinish = true;
+        }
+      }
+
+      function setTarget(ball, tx, ty){
+        ball.sx = ball.x; ball.sy = ball.y;
+        ball.tx = tx; ball.ty = ty;
+        ball.t = 0;
+        ball.dur = 320 / speedFactor;
+        ball.el.style.opacity = '1';
+      }
+
+      function pegAt(row, col){
+        const y = TOP_Y + row*Sy;
+        const x0 = CX - (row * Sx)/2;
+        const x = x0 + col*Sx;
+        return {x,y};
+      }
+
+      // Animation
+      let lastRAF = 0;
+      function frame(t){
+        requestAnimationFrame(frame);
+        const dt = (lastRAF ? (t - lastRAF) : 16);
+        lastRAF = t;
+
+        for (const ball of balls){
+          if (ball.finished) continue;
+
+          if (ball.t === 0 && ball.sx == null) nextTarget(ball);
+
+          ball.t += dt / ball.dur;
+          if (ball.t >= 1){
+            ball.t = 1;
+            ball.x = ball.tx; ball.y = ball.ty;
+            ball.el.setAttribute('cx', ball.x);
+            ball.el.setAttribute('cy', ball.y);
+
+            if (ball.willFinish){
+              ball.finished = true;
+              nFinished++;
+              if (nFinishedEl) nFinishedEl.textContent = nFinished;
+
+              const bi = findBinIndex(ball.x);
+              if (bi != null){
+                bins[bi].count++;
+                updateDist();
+              }
+              ball.el.remove();
+              continue;
+            }
+            nextTarget(ball);
+          } else {
+            const u = 1 - Math.pow(1-ball.t,3); // easeOutCubic
+            ball.x = ball.sx + (ball.tx - ball.sx) * u;
+            ball.y = ball.sy + (ball.ty - ball.sy) * u;
+            ball.el.setAttribute('cx', ball.x);
+            ball.el.setAttribute('cy', ball.y);
+            if (ball.willFinish){
+              ball.el.style.opacity = String(1 - u);
+            }
+          }
+        }
+      }
+
+      function findBinIndex(x){
+        for (let i=0;i<bins.length;i++){
+          const b = bins[i];
+          if (x >= b.x && x <= (b.x + b.w)) return i;
+        }
+        return null;
+      }
+
+      // Events
+      if (btns.launch1)   btns.launch1.addEventListener('click', ()=> spawnBalls(1));
+      if (btns.launch5)   btns.launch5.addEventListener('click', ()=> spawnBalls(5));
+      if (btns.launch10)  btns.launch10.addEventListener('click', ()=> spawnBalls(10));
+      if (btns.launch100) btns.launch100.addEventListener('click', ()=> spawnBalls(100));
+      if (btns.launch1000)  btns.launch1000.addEventListener('click', ()=> spawnBalls(1000));
+      if (btns.reset)     btns.reset.addEventListener('click', resetAll);
+      if (speedInput)     speedInput.addEventListener('input', ()=>{
+        speedFactor = Number(speedInput.value);
+        if (lastMsg) lastMsg.textContent = `Vitesse ×${speedFactor.toFixed(1)}`;
+      });
+
+      document.addEventListener('keydown', (e)=>{
+        const panel = document.querySelector('.tab-panel.active');
+        if (!panel || !panel.contains(board)) return;
+        if (e.code === 'Space'){
+          e.preventDefault();
+          spawnBalls(1);
+        }
+      });
+
+      function resetAll(){
+        for (const b of balls){ b.el.remove(); }
+        balls = [];
+        bins.forEach(b=>{ b.count=0; });
+        nLaunched = 0; nFinished = 0;
+        if (nLaunchedEl) nLaunchedEl.textContent = '0';
+        if (nFinishedEl) nFinishedEl.textContent = '0';
+        if (lastMsg) lastMsg.textContent = 'Réinitialisé.';
+        updateDist();
+      }
+
+      // Init
+      function init(){
+        buildBoard();
+        speedFactor = Number(speedInput?.value || 1.0);
+        requestAnimationFrame(frame);
+      }
+      init();
+
+      return { spawnBalls, resetAll, buildBoard };
+    }
+
+    // Lancer les deux apps
+    const appClassic = createGaltonApp('c', {withControls:true});
+    const appTronc   = createGaltonApp('t', {withControls:true, withTronc:true});
+  </script>
+</body>
+</html>

@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dés — 30 lancers (3 dés, moyenne arrondie au 0,5) + historique</title>
+  <meta name="description" content="Jeu de lancé: 3 dés à 6 faces lancés simultanément. Résultat = moyenne des 3 arrondie au 0,5 le plus proche. 30 lancers max, courbe des comptes (pas 0,5), historique copiable et effaçable." />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      --panel:#141a2f; --border:#263046;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:1rem}
+    a.back, a.back:visited{color:#fff;text-decoration:none}
+    a.back:hover, a.back:focus-visible{color:#e5e7eb;outline:2px solid #e5e7eb;outline-offset:2px}
+    h1{font-size:1.4rem;margin:.5rem 0 1rem}
+
+    .grid{display:grid;gap:1rem;grid-template-columns: 1.1fr .9fr}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.75rem;padding:1rem}
+    .muted{color:var(--muted)}
+
+    /* Boutons en haut */
+    .actions-top{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;justify-content:flex-start}
+    .btn{padding:.7rem .9rem;border-radius:.5rem;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;font-weight:700}
+    .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+    .btn.alert{border-color:var(--err);color:var(--err)}
+    .btn:hover,.btn:focus-visible{filter:brightness(1.08)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+
+    .stats{display:flex;gap:1rem;flex-wrap:wrap;margin:.75rem 0}
+    .chip{background:rgba(96,165,250,.16);padding:.4rem .6rem;border-radius:.5rem;border:1px solid var(--border);min-width:12ch}
+    .bar{height:10px;background:#0f172a;border:1px solid #334155;border-radius:999px;overflow:hidden}
+    .bar > span{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#60a5fa);width:0%}
+
+    /* Zone visuelle (3 dés) */
+    .stage{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);border:1px solid var(--border);border-radius:.75rem;min-height:360px}
+    .dice-row{display:flex;gap:18px;align-items:center;justify-content:center;flex-wrap:wrap}
+    .dice{
+      width:140px;height:140px;border-radius:1rem;background:#1f2a44;border:1px solid #334155;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 8px 20px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.03);
+      position:relative; transform:rotate(0deg); transition:transform .18s ease;
+    }
+    .dice.spin{animation:shake .7s ease-in-out}
+    @keyframes shake{
+      0%{ transform:translate(0,0) rotate(0deg) }
+      20%{ transform:translate(-6px,-2px) rotate(-6deg) }
+      40%{ transform:translate(7px,3px) rotate(8deg) }
+      60%{ transform:translate(-4px,4px) rotate(-5deg) }
+      80%{ transform:translate(5px,-3px) rotate(6deg) }
+      100%{ transform:translate(0,0) rotate(0deg) }
+    }
+    .dice-value{font:800 56px/1.1 system-ui,Segoe UI,Roboto; color:#e5e7eb; text-shadow:0 2px 10px rgba(0,0,0,.4)}
+    .dice-sub{margin-top:10px;text-align:center;font:600 13px/1 system-ui;color:#94a3b8}
+
+    .under-visual{margin-top:.75rem}
+
+    /* Chart (comptes par valeur pas 0,5) */
+    .chart-wrap .chart-title{margin:0 0 .5rem;font-weight:800}
+    .chart-legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.5rem 0;color:var(--muted);font-size:.95rem}
+    .legend-box{display:inline-flex;align-items:center;gap:.35rem}
+    .lb{width:14px;height:14px;border-radius:3px;display:inline-block}
+    .lb.counts{background:linear-gradient(180deg,#60a5fa,#2563eb)}
+    .chart-svg{width:100%;height:auto;display:block}
+    .chart-grid{stroke:#334155;stroke-width:1;opacity:.4}
+    .chart-text{fill:#cbd5e1;font:600 12px/1 system-ui,Segoe UI,Roboto}
+    .counts-line{fill:none;stroke:#60a5fa;stroke-width:2.5}
+    .counts-dot{fill:#93c5fd}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a class="back" href="index.html">← Retour à l’accueil</a></p>
+    <h1>Jeu de dés — 30 lancers (3 dés, moyenne arrondie au 0,5)</h1>
+
+    <!-- Boutons en haut -->
+    <div class="panel">
+      <div class="actions-top">
+        <button id="roll" class="btn primary">Lancer</button>
+        <button id="copyHistory" class="btn">Copier l’historique</button>
+        <button id="clearHistory" class="btn alert">Effacer l’historique</button>
+      </div>
+      <p id="lastMsg" class="muted" style="margin:.5rem 0 0" aria-live="polite"></p>
+    </div>
+
+    <div class="grid">
+      <!-- Visuel + infos -->
+      <div class="panel">
+        <div class="stage">
+          <div>
+            <div class="dice-row">
+              <div id="dice1" class="dice" aria-label="Dé 1 (1 à 6)"><div id="diceValue1" class="dice-value">—</div></div>
+              <div id="dice2" class="dice" aria-label="Dé 2 (1 à 6)"><div id="diceValue2" class="dice-value">—</div></div>
+              <div id="dice3" class="dice" aria-label="Dé 3 (1 à 6)"><div id="diceValue3" class="dice-value">—</div></div>
+            </div>
+            <div class="dice-sub">3 dés / 6 faces — Résultat du tirage = moyenne des 3 (arrondie au 0,5 le plus proche)</div>
+          </div>
+        </div>
+
+        <!-- Infos sous le visuel -->
+        <div class="under-visual">
+          <div class="stats">
+            <div class="chip">Lancers: <strong id="rollCount">0</strong> / <strong id="rollTotal">30</strong></div>
+            <div class="chip">Moyenne (historique): <strong id="meanLabel">—</strong></div>
+            <div class="chip">Dernier (moyenne arrondie au 0,5): <strong id="lastRoll">—</strong></div>
+          </div>
+          <div class="bar" title="Progression (30 lancers)">
+            <span id="bar"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Graphique -->
+      <div class="panel chart-wrap">
+        <h2 class="chart-title">Répartition des résultats (pas 0,5)</h2>
+        <div class="chart-legend">
+          <span class="legend-box"><span class="lb counts"></span>Comptes par valeur (pas 0,5 de 1.0 à 6.0)</span>
+        </div>
+        <svg id="chart" class="chart-svg" viewBox="0 0 760 340" role="img" aria-label="Courbe des comptes"></svg>
+        <div id="chartStats" class="stat-line muted"></div>
+        <p id="chartHint" class="muted" style="margin-top:.25rem;"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utils
+    const $ = (s, ctx=document)=>ctx.querySelector(s);
+    const store = {
+      get(k, f=null){ try{ return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } },
+      set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+    };
+
+    // Constantes: 3 dés (6 faces), 30 lancers max, résultat = moyenne arrondie au 0,5
+    const SIDES = 6;
+    const N_DICE = 3;
+    const THROWS_MAX = 30;
+    const HISTORY_KEY = 'des:lancers:avg3d6:v1'; // [ {v, d:[d1,d2,d3], ts} ... ]
+
+    // Réfs UI
+    const rollBtn = $('#roll');
+    const copyHistoryBtn = $('#copyHistory');
+    const clearHistoryBtn = $('#clearHistory');
+
+    const diceEls = [$('#dice1'), $('#dice2'), $('#dice3')];
+    const diceValEls = [$('#diceValue1'), $('#diceValue2'), $('#diceValue3')];
+
+    const rollCountEl = $('#rollCount');
+    const rollTotalEl = $('#rollTotal');
+    const meanLabel = $('#meanLabel');
+    const lastRollEl = $('#lastRoll');
+    const barSpan = $('#bar');
+    const lastMsg = $('#lastMsg');
+
+    const chart = $('#chart');
+    const chartStats = $('#chartStats');
+    const chartHint = $('#chartHint');
+
+    rollTotalEl.textContent = THROWS_MAX;
+
+    // Historique simple (jusqu'à THROWS_MAX lancers)
+    function loadHistory(){ return store.get(HISTORY_KEY, []); }
+    function saveRoll(avgHalf, diceVals){
+      const hist = loadHistory();
+      if (hist.length >= THROWS_MAX) return false;
+      hist.push({ v: avgHalf, d: diceVals, ts: Date.now() });
+      store.set(HISTORY_KEY, hist);
+      return true;
+    }
+    function clearHistory(){
+      store.set(HISTORY_KEY, []);
+      for (const el of diceValEls) el.textContent = '—';
+      lastRollEl.textContent = '—';
+      lastMsg.textContent = 'Historique effacé.';
+      updateUI();
+    }
+
+    // Tirage
+    function randInt1S(s){ return (Math.random()*s | 0) + 1; }
+    function rollDice3(){
+      return [randInt1S(SIDES), randInt1S(SIDES), randInt1S(SIDES)];
+    }
+
+    // Arrondir au 0,5 le plus proche, borné 1..6
+    function roundToHalf(v){
+      const r = Math.round(v * 2) / 2;
+      return Math.min(6, Math.max(1, r));
+    }
+
+    // Animation par dé avec décalage (x2 plus rapide)
+    let rolling = false;
+    function animateDie(dieEl, valueEl, finalValue, delayMs){
+      return new Promise(resolve=>{
+        const dur = 350; // ms (au lieu de 700)
+        const startAt = performance.now() + delayMs; // décalage réduit
+        let started = false;
+        function frame(t){
+          if (!started && t >= startAt){
+            dieEl.classList.add('spin');
+            started = true;
+          }
+          if (!started){
+            requestAnimationFrame(frame);
+            return;
+          }
+          const elapsed = t - startAt;
+          const speed = Math.min(260, 100 + elapsed * 0.8);
+          if (elapsed < dur){
+            if (elapsed % speed < 16){
+              valueEl.textContent = randInt1S(SIDES);
+            }
+            requestAnimationFrame(frame);
+          } else {
+            valueEl.textContent = finalValue;
+            dieEl.classList.remove('spin');
+            resolve();
+          }
+        }
+        requestAnimationFrame(frame);
+      });
+    }
+
+    async function doRoll(){
+      if (rolling) return;
+      const hist = loadHistory();
+      if (hist.length >= THROWS_MAX){
+        lastMsg.textContent = `${THROWS_MAX}/${THROWS_MAX} lancers atteints. Copiez ou effacez l’historique.`;
+        updateButtons();
+        return;
+      }
+
+      // Tirage final de chaque dé
+      const finals = rollDice3(); // [d1,d2,d3], 1..6
+      // Moyenne arrondie au 0,5 le plus proche
+      const avgHalf = roundToHalf((finals[0] + finals[1] + finals[2]) / 3);
+
+      rolling = true;
+      rollBtn.disabled = true;
+
+      // Animer avec décalage x2 plus rapide
+      const delays = [0, 60, 120];
+      await Promise.all([
+        animateDie(diceEls[0], diceValEls[0], finals[0], delays[0]),
+        animateDie(diceEls[1], diceValEls[1], finals[1], delays[1]),
+        animateDie(diceEls[2], diceValEls[2], finals[2], delays[2]),
+      ]);
+
+      rolling = false;
+
+      saveRoll(avgHalf, finals);
+      lastRollEl.textContent = String(avgHalf);
+      const n = loadHistory().length;
+      lastMsg.textContent = `Lancer #${n}: dés = [${finals.join(', ')}], moyenne arrondie (0,5) = ${String(avgHalf)}`;
+      updateUI();
+    }
+
+    // Stats
+    function mean(arr){ return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0; }
+
+    // Graphe (courbe des comptes, valeurs possibles = 1.0, 1.5, …, 6.0)
+    function renderChart(){
+      const values = loadHistory().map(h=>h.v);
+      chart.innerHTML = '';
+
+      const W = 760, H = 340, mg = {l:55, r:20, t:20, b:40};
+      const PW = W - mg.l - mg.r, PH = H - mg.t - mg.b;
+
+      // Cadre
+      chart.appendChild(el('rect', { x:mg.l, y:mg.t, width:PW, height:PH, fill:'none', stroke:'rgba(148,163,184,.4)' }));
+
+      if (values.length === 0){
+        chartHint.textContent = `Clique sur “Lancer” pour alimenter la courbe (pas 0,5). Maximum ${THROWS_MAX} lancers.`;
+        chartStats.textContent = '';
+        return;
+      } else {
+        chartHint.textContent = '';
+      }
+
+      // Domaine X: 1..6 (pas 0,5) => 11 points (1.0 à 6.0)
+      const xMin = 1, xMax = 6;
+      const counts = binCountsHalf(values); // taille 11
+      const yMax = Math.max(1, ...counts);
+
+      const x = (v) => mg.l + ((v - xMin) / (xMax - xMin)) * PW;
+      const y = (c) => mg.t + PH - (c / yMax) * (PH * 0.92);
+
+      // Grille Y + labels
+      const yTicks = 5;
+      for (let i=0;i<=yTicks;i++){
+        const frac = i / yTicks;
+        const gy = mg.t + PH - frac * PH;
+        chart.appendChild(el('line', { x1:mg.l, y1:gy, x2:mg.l + PW, y2:gy, class:'chart-grid' }));
+        const lbl = el('text', { x:mg.l - 8, y:gy + 4, class:'chart-text', 'text-anchor':'end' });
+        lbl.textContent = Math.round(frac * yMax);
+        chart.appendChild(lbl);
+      }
+
+      // Graduation X (tous les 0,5)
+      for (let k = 2; k <= 12; k++){ // 1.0 .. 6.0
+        const v = k / 2;
+        const gx = x(v);
+        chart.appendChild(el('line', { x1:gx, y1:mg.t + PH, x2:gx, y2:mg.t + PH + 6, stroke:'#94a3b8' }));
+        const lbl = el('text', { x:gx, y:mg.t + PH + 20, class:'chart-text', 'text-anchor':'middle' });
+        lbl.textContent = (Math.abs(v - Math.round(v)) < 1e-9) ? String(Math.round(v)) : v.toFixed(1);
+        chart.appendChild(lbl);
+      }
+
+      // Courbe (points 1.0 .. 6.0, pas 0,5)
+      const pts = [];
+      for (let k = 2; k <= 12; k++){
+        const v = k / 2;
+        const c = counts[k - 2];
+        const px = x(v);
+        const py = y(c);
+        pts.push([px, py]);
+      }
+      if (pts.length >= 2){
+        const d = 'M ' + pts.map(p => `${p[0]} ${p[1]}`).join(' L ');
+        chart.appendChild(el('path', { d, class:'counts-line' }));
+      }
+      for (const [px,py] of pts){
+        chart.appendChild(el('circle', { cx:px, cy:py, r:3.2, class:'counts-dot' }));
+      }
+
+      // Axes labels
+      const xl = el('text', { x:mg.l + PW/2, y:H-8, class:'chart-text', 'text-anchor':'middle' });
+      xl.textContent = 'Valeur (moyenne des 3 dés arrondie au 0,5)';
+      chart.appendChild(xl);
+      const yl = el('text', { x:14, y:mg.t + PH/2, class:'chart-text', transform:`rotate(-90 14 ${mg.t + PH/2})`, 'text-anchor':'middle' });
+      yl.textContent = 'Comptes';
+      chart.appendChild(yl);
+
+      // Stats ligne
+      const avg = mean(values);
+      chartStats.textContent = `n = ${values.length} • moyenne (des moyennes arrondies au 0,5) = ${avg.toFixed(3)}`;
+    }
+
+    // Comptage sur pas 0,5 de 1.0 à 6.0
+    function binCountsHalf(values){
+      const counts = new Array(11).fill(0); // indices 0..10 -> 1.0..6.0
+      for (let v of values){
+        const vh = roundToHalf(v); // sécurité / cohérence
+        const k = Math.round(vh * 2); // 2..12
+        const idx = k - 2;
+        if (idx >= 0 && idx < counts.length) counts[idx]++;
+      }
+      return counts;
+    }
+
+    // UI helpers
+    function updateUI(){
+      const hist = loadHistory();
+      const vals = hist.map(h=>h.v);
+      rollCountEl.textContent = vals.length;
+      barSpan.style.width = `${(vals.length/THROWS_MAX*100).toFixed(1)}%`;
+      meanLabel.textContent = vals.length ? mean(vals).toFixed(3) : '—';
+      copyHistoryBtn.disabled = vals.length === 0;
+      rollBtn.disabled = vals.length >= THROWS_MAX || rolling;
+      renderChart();
+    }
+    function updateButtons(){ updateUI(); }
+
+    // Copier historique (valeurs arrondies au 0,5)
+    function fallbackCopy(text, okMsg, failMsg){
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      lastMsg.textContent = ok ? okMsg : failMsg;
+    }
+    function copyHistory(){
+      const vals = loadHistory().map(h=>roundToHalf(h.v)); // sécurité
+      if (vals.length === 0){
+        lastMsg.textContent = 'Historique vide.';
+        return;
+      }
+      const text = vals.map(v=>String(v)).join('\n');
+      const ok = `${vals.length} valeur${vals.length>1?'s':''} copiée${vals.length>1?'s':''} (historique).`;
+      const fail = 'Échec de la copie (historique).';
+      if (navigator.clipboard?.writeText){
+        navigator.clipboard.writeText(text).then(()=>{ lastMsg.textContent = ok; }).catch(()=> fallbackCopy(text, ok, fail));
+      } else {
+        fallbackCopy(text, ok, fail);
+      }
+    }
+
+    // SVG helper
+    function el(name, attrs={}){
+      const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const k in attrs){ e.setAttribute(k, attrs[k]); }
+      return e;
+    }
+
+    // Événements
+    rollBtn.addEventListener('click', doRoll);
+    copyHistoryBtn.addEventListener('click', copyHistory);
+    clearHistoryBtn.addEventListener('click', ()=>{
+      if (confirm(`Effacer l’historique des ${THROWS_MAX} lancers ?`)) clearHistory();
+    });
+
+    // Barre espace = lancer
+    document.addEventListener('keydown', (e)=>{
+      if (e.code === 'Space'){
+        e.preventDefault();
+        if (!rollBtn.disabled) doRoll();
+      }
+    });
+
+    // Init
+    updateUI();
+  </script>
+</body>
+</html>

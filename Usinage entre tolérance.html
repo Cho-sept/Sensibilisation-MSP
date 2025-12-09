@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Usinage — Validation + Historique (Histogramme + LSL/USL)</title>
+  <meta name="description" content="Usinage d’un cylindre: clic = une passe, appui long = passes continues (pas aléatoire 0.052–0.086 mm). Valider la pièce, historique persistant, histogramme des diamètres avec LSL/USL." />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      --panel:#141a2f; --border:#263046;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:1rem}
+    a.back, a.back:visited{color:#fff;text-decoration:none}
+    a.back:hover, a.back:focus-visible{color:#e5e7eb;outline:2px solid #e5e7eb;outline-offset:2px}
+    h1{font-size:1.4rem;margin:.5rem 0 1rem}
+
+    .grid{display:grid;gap:1rem;grid-template-columns: 1.1fr .9fr}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.75rem;padding:1rem}
+    .controls{display:flex;flex-direction:column;gap:.75rem}
+    .field label{display:block;font-weight:700;margin-bottom:.25rem}
+    input[type="number"]{
+      width:100%;padding:.55rem .6rem;border-radius:.5rem;border:1px solid #334155;background:#0f172a;color:var(--fg)
+    }
+    .btn{padding:.7rem .9rem;border-radius:.5rem;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;font-weight:700}
+    .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+    .btn.success{border-color:var(--ok);color:var(--ok)}
+    .btn.success:hover,.btn.success:focus-visible{filter:brightness(1.1)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn-col{display:flex;flex-direction:column;gap:.6rem;margin-top:.25rem}
+
+    /* Bouton rose */
+    .btn.pink{border-color:#ec4899;color:#ec4899}
+    .btn.pink:hover,.btn.pink:focus-visible{filter:brightness(1.1)}
+
+    .stats{display:flex;gap:1rem;flex-wrap:wrap;margin:.75rem 0}
+    .chip{background:rgba(96,165,250,.16);padding:.4rem .6rem;border-radius:.5rem;border:1px solid var(--border);min-width:12ch}
+    .chip.ok{background:rgba(34,197,94,.16);border-color:#1f8a4a}
+    .chip.err{background:rgba(248,113,113,.16);border-color:#b45353}
+    .muted{color:var(--muted)}
+    .bar{height:10px;background:#0f172a;border:1px solid #334155;border-radius:999px;overflow:hidden}
+    .bar > span{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#60a5fa);width:0%}
+
+    /* Zone graphique (cylindre) */
+    .stage{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);border:1px solid var(--border);border-radius:.75rem;min-height:360px}
+    svg{max-width:100%;height:auto}
+    .stock-outer{fill:#223;stroke:#445;stroke-width:1}
+    .stock{fill:#2c3e66}
+    .front{fill:#6da1ff;opacity:.18}
+    .tool-body{fill:#f59e0b}
+    .tool-tip{fill:#f87171}
+    .tick{stroke:#94a3b8;stroke-width:.8;opacity:.7}
+    .dim{fill:#e5e7eb;font:800 22px/1.2 system-ui,Segoe UI,Roboto;text-anchor:middle}
+    .dim.ok{fill:var(--ok)}
+    .tool{transition: transform .18s ease;}
+    .under-visual{margin-top:.75rem}
+
+    /* Chart (Histogramme + LSL/USL) */
+    .chart-wrap{margin-top:1rem}
+    .chart-title{margin:0 0 .5rem;font-weight:800}
+    .chart-legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.5rem 0;color:var(--muted);font-size:.95rem}
+    .legend-box{display:inline-flex;align-items:center;gap:.35rem}
+    .lb{width:14px;height:14px;border-radius:3px;display:inline-block}
+    .lb.hist{background:#1e3a8a}
+    .lb.lsl{background:#f97316}
+    .chart-svg{width:100%;height:auto;display:block}
+    .chart-grid{stroke:#334155;stroke-width:1;opacity:.4}
+    .bar-rect{fill:#1e3a8a;opacity:.85}
+    .limit-line{stroke:#f97316;stroke-width:2}
+    .chart-text{fill:#cbd5e1;font:600 12px/1 system-ui,Segoe UI,Roboto}
+    .stat-line{margin-top:.5rem;color:var(--muted)}
+    .actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a class="back" href="index.html">← Retour à l’accueil</a></p>
+    <h1>Usinage d’un cylindre — Validation et historique (Histogramme)</h1>
+
+    <div class="grid">
+      <!-- Visuel + infos -->
+      <div class="panel">
+        <div class="stage">
+          <svg id="scene" viewBox="0 0 420 320" role="img" aria-label="Cylindre et outil d’usinage">
+            <g id="axes">
+              <line x1="10" y1="160" x2="410" y2="160" class="tick"/>
+              <line x1="210" y1="10" x2="210" y2="310" class="tick"/>
+            </g>
+
+            <!-- Rayon visuel de référence = 100 px (auto-scale) -->
+            <circle id="outer" class="stock-outer" cx="210" cy="160" r="100"/>
+            <circle id="stock" class="stock" cx="210" cy="160" r="100"/>
+            <circle id="front" class="front" cx="210" cy="160" r="100"/>
+
+            <text id="dimLabel" class="dim" x="210" y="165">Ø — mm</text>
+
+            <!-- Outil -->
+            <g id="tool" class="tool" transform="translate(330,160)">
+              <g transform="translate(0,-12)">
+                <rect class="tool-body" x="-2" y="0" width="38" height="12" rx="3" ry="3"/>
+              </g>
+              <polygon class="tool-tip" points="0,0 0,10 -18,5"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- Infos sous le visuel -->
+        <div class="under-visual">
+          <div class="stats">
+            <div id="chipD" class="chip">Diamètre: <strong id="dCur">—</strong> mm</div>
+            <div class="chip">Tolérance: <strong id="tolRange">[— ; —]</strong> mm</div>
+            <div id="chipStatus" class="chip">Statut: <strong id="statusTxt">—</strong></div>
+          </div>
+          <div class="bar" title="Proportion du diamètre restant">
+            <span id="bar"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contrôles -->
+      <div class="panel">
+        <div class="controls" aria-label="Paramètres">
+          <div class="field">
+            <label for="d0">Diamètre initial (mm)</label>
+            <input id="d0" type="number" min="0.001" max="500" step="0.001" value="2.000">
+          </div>
+          <div class="field">
+            <label for="lsl">Tolérance inférieure LSL (mm)</label>
+            <input id="lsl" type="number" min="0" max="500" step="0.001" value="0.497">
+          </div>
+          <div class="field">
+            <label for="usl">Tolérance supérieure USL (mm)</label>
+            <input id="usl" type="number" min="0" max="500" step="0.001" value="0.985">
+          </div>
+
+          <button id="apply" class="btn">Appliquer</button>
+
+          <div class="btn-col" aria-label="Actions">
+            <button id="cut" class="btn primary">Usiner (−)</button>
+            <button id="validate" class="btn success">Valider ma pièce</button>
+            <button id="reset" class="btn">Réinitialiser</button>
+            <!-- Nouveau bouton rose -->
+            <button id="copyHistory" class="btn pink">Copier l’historique</button>
+          </div>
+
+          <p id="lastMsg" class="muted" aria-live="polite"></p>
+          <p class="muted">Clic = une passe. Appui long (ou barre espace) = usinage continu. Chaque passe retire un pas aléatoire entre 0.052 et 0.086 mm.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Historique (Histogramme + LSL/USL) -->
+    <div class="panel chart-wrap">
+      <h2 class="chart-title">Historique des pièces validées</h2>
+      <div class="chart-legend">
+        <span class="legend-box"><span class="lb hist"></span>Histogramme (diamètres validés)</span>
+        <span class="legend-box"><span class="lb lsl"></span>LSL / USL</span>
+      </div>
+      <div class="actions">
+        <button id="clearHistory" class="btn">Effacer l’historique</button>
+      </div>
+      <svg id="chart" class="chart-svg" viewBox="0 0 760 340" role="img" aria-label="Histogramme des diamètres avec LSL/USL"></svg>
+      <div id="chartStats" class="stat-line"></div>
+      <p id="chartHint" class="muted" style="margin-top:.25rem;"></p>
+    </div>
+  </div>
+
+  <script>
+    // Utils DOM / stockage
+    const $ = (s, ctx=document)=>ctx.querySelector(s);
+    const store = {
+      get(k, f=null){ try{ return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } },
+      set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+    };
+    const HISTORY_KEY = 'usinage:history:v2'; // {d, ok, lsl, usl, d0, ts, mode}
+
+    // Réfs visuel cylindre
+    const stock = $('#stock');
+    const front = $('#front');
+    const outer = $('#outer');
+    const tool = $('#tool');
+    const dimLabel = $('#dimLabel');
+
+    const d0Input = $('#d0');
+    const lslInput = $('#lsl');
+    const uslInput = $('#usl');
+
+    const applyBtn = $('#apply');
+    const cutBtn = $('#cut');
+    const validateBtn = $('#validate');
+    const resetBtn = $('#reset');
+    const copyHistoryBtn = $('#copyHistory');
+
+    const dCurEl = $('#dCur');
+    const tolRangeEl = $('#tolRange');
+    const chipD = $('#chipD');
+    const chipStatus = $('#chipStatus');
+    const statusTxt = $('#statusTxt');
+    const barSpan = $('#bar');
+    const lastMsg = $('#lastMsg');
+
+    // Chart refs
+    const chart = $('#chart');
+    const clearHistoryBtn = $('#clearHistory');
+    const chartStats = $('#chartStats');
+    const chartHint = $('#chartHint');
+
+    // Etat usinage
+    const R_TARGET = 100;  // px (rayon visuel quand d = d0)
+    const CX = 210, CY = 160;
+
+    let d0 = 2.000;   // Ø initial (mm)
+    let d  = 2.000;   // Ø courant (mm)
+    let LSL = 0.497;
+    let USL = 0.985;
+
+    // Historique (lecture)
+    function loadHistory(){ return store.get(HISTORY_KEY, []); }
+
+    // Mode d'usinage alterné
+    // 'remove' = enlèvement (on part de d0 et on diminue)
+    // 'add'    = ajout (on part de 0 et on augmente jusqu'à min(d0, MAX_ADD_ABS))
+    const MAX_ADD_ABS = 1.500; // butée absolue d'ajout (mm)
+    const MODE_KEY = 'usinage:mode:v1';
+
+    let mode = store.get(MODE_KEY, null);
+    if (!mode){
+      mode = (loadHistory().length % 2 === 0) ? 'remove' : 'add';
+      store.set(MODE_KEY, mode);
+    }
+    function saveMode(){ store.set(MODE_KEY, mode); }
+    function toggleMode(){ mode = (mode === 'remove' ? 'add' : 'remove'); saveMode(); updateModeUI(); }
+    function getAddCap(){ return Math.min(MAX_ADD_ABS, d0); }
+
+    function updateModeUI(){
+      if (cutBtn) cutBtn.textContent = (mode === 'remove') ? 'Usiner (−)' : 'Ajouter (+)';
+      if (!lastMsg.textContent) {
+        lastMsg.textContent = `Mode: ${mode === 'remove' ? 'enlèvement de matière' : 'ajout de matière'}.`;
+      }
+    }
+
+    let scaleRadius = R_TARGET / (d0/2); // px par mm de rayon
+
+    // Clic court / appui long
+    const CUT_PERIOD = 100; // ms entre passes
+    const HOLD_DELAY = 250; // ms avant passage en continu
+    let holdTimer = null;
+    let pressTimer = null;
+    let continuous = false;
+
+    // Pas aléatoire [0.052 ; 0.086] mm, 3 décimales
+    function randStep(){
+      const v = 0.052 + Math.random() * (0.086 - 0.052);
+      return Number(v.toFixed(3));
+    }
+
+    // Usinage
+    function setInitial(newD0){
+      d0 = Math.max(0.001, Number(newD0)||d0);
+      d  = (mode === 'remove') ? d0 : 0;
+      scaleRadius = R_TARGET / (d0/2);
+      outer.setAttribute('r', R_TARGET);
+      updateVisual(true);
+    }
+    function setTolerances(lsl, usl){
+      let l = Math.max(0, Number(lsl));
+      let u = Math.max(0, Number(usl));
+      if (!isFinite(l)) l = LSL;
+      if (!isFinite(u)) u = USL;
+      if (u < l) [u, l] = [l, u]; // swap si inversé
+      LSL = l; USL = u;
+      tolRangeEl.textContent = `[${LSL.toFixed(3)} ; ${USL.toFixed(3)}]`;
+      updateVisual();
+      renderChart(); // MAJ des lignes LSL/USL du graphe
+    }
+    function updateStatusColor(isOK){
+      dimLabel.classList.toggle('ok', isOK);
+      chipD.classList.toggle('ok', isOK);
+      chipStatus.classList.toggle('ok', isOK);
+      chipStatus.classList.toggle('err', !isOK);
+      statusTxt.textContent = isOK ? 'OK' : 'NC';
+    }
+    function updateVisual(first=false){
+      const r = (d/2) * scaleRadius;
+      stock.setAttribute('r', r);
+      front.setAttribute('r', r);
+      const clearance = 12; // px
+      const toolX = CX + r + clearance;
+      tool.setAttribute('transform', `translate(${toolX},${CY})`);
+      dimLabel.textContent = `Ø ${d.toFixed(3)} mm`;
+      dCurEl.textContent = d.toFixed(3);
+
+      const progress = (mode === 'remove') ? (d / d0) : (d / getAddCap());
+      barSpan.style.width = `${(Math.max(0, Math.min(1, progress)) * 100).toFixed(2)}%`;
+
+      updateStatusColor(d >= LSL && d <= USL);
+      if (first) return;
+    }
+
+    function clampDown(value){ // enlèvement: on ne peut PAS augmenter
+      const v = Math.max(0, value);
+      return Math.min(d, v);
+    }
+    function clampUp(value){ // ajout: on ne peut PAS diminuer
+      const cap = getAddCap();
+      const v = Math.min(cap, value);
+      return Math.max(d, v);
+    }
+
+    function cutOnce(){
+      const step = randStep();
+      let newD;
+      if (mode === 'remove'){
+        newD = clampDown(Number((d - step).toFixed(3)));
+      } else {
+        newD = clampUp(Number((d + step).toFixed(3)));
+      }
+      if (newD === d) return;
+      d = newD;
+      updateVisual();
+    }
+    function startContinuous(){
+      if (pressTimer) return;
+      continuous = true;
+      cutOnce();
+      pressTimer = setInterval(cutOnce, CUT_PERIOD);
+    }
+    function stopContinuous(){
+      clearInterval(pressTimer);
+      pressTimer = null;
+      continuous = false;
+    }
+    function onPointerDown(e){
+      e.preventDefault();
+      if (holdTimer || pressTimer) return;
+      holdTimer = setTimeout(()=>{ holdTimer=null; startContinuous(); }, HOLD_DELAY);
+    }
+    function onPointerUp(e){
+      e.preventDefault();
+      if (holdTimer){
+        clearTimeout(holdTimer);
+        holdTimer = null;
+        cutOnce(); // clic court => 1 passe
+      }
+      if (continuous) stopContinuous();
+    }
+
+    // Historique
+    function saveHistoryEntry(entry){
+      const list = loadHistory();
+      list.push(entry);
+      if (list.length > 5000) list.splice(0, list.length - 5000);
+      store.set(HISTORY_KEY, list);
+      renderChart();
+    }
+    function clearHistory(){
+      store.set(HISTORY_KEY, []);
+      renderChart();
+    }
+
+    // Copier l'historique (toutes les mesures Ø)
+    function fallbackCopy(text, count){
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      lastMsg.textContent = ok
+        ? `${count} mesure${count>1?'s':''} copiée${count>1?'s':''} dans le presse-papiers.`
+        : 'Échec de la copie dans le presse-papiers.';
+    }
+    function copyHistory(){
+      const hist = loadHistory();
+      const values = hist.map(h => Number(h.d)).filter(v => isFinite(v));
+      if (values.length === 0){
+        lastMsg.textContent = 'Aucune mesure à copier (historique vide).';
+        return;
+      }
+      const text = values.map(v => v.toFixed(3)).join('\n');
+      if (navigator.clipboard?.writeText){
+        navigator.clipboard.writeText(text)
+          .then(()=>{ lastMsg.textContent = `${values.length} mesure${values.length>1?'s':''} copiée${values.length>1?'s':''} dans le presse-papiers.`; })
+          .catch(()=> fallbackCopy(text, values.length));
+      } else {
+        fallbackCopy(text, values.length);
+      }
+    }
+
+    // Stats simples
+    function mean(arr){ return arr.reduce((s,v)=>s+v,0) / arr.length; }
+    function sdSample(arr){
+      if (arr.length < 2) return 0;
+      const m = mean(arr);
+      return Math.sqrt(arr.reduce((s,v)=>s + (v-m)*(v-m), 0) / (arr.length-1));
+    }
+
+    // SVG helper
+    function el(name, attrs={}){
+      const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const k in attrs){ e.setAttribute(k, attrs[k]); }
+      return e;
+    }
+
+    // Histogramme + LSL/USL
+    function renderChart(){
+      const hist = loadHistory();
+      const values = hist.map(h => Number(h.d)).filter(v => isFinite(v));
+      chart.innerHTML = '';
+
+      const W = 760, H = 340, m = {l:55, r:20, t:20, b:40};
+      const PW = W - m.l - m.r, PH = H - m.t - m.b;
+
+      // Cadre
+      chart.appendChild(el('rect', { x:m.l, y:m.t, width:PW, height:PH, fill:'none', stroke:'rgba(148,163,184,.4)' }));
+
+      // Activer/désactiver le bouton de copie selon l'historique
+      if (copyHistoryBtn) copyHistoryBtn.disabled = values.length === 0;
+
+      if (values.length === 0){
+        chartHint.textContent = 'Validez une pièce pour afficher l’historique.';
+        chartStats.textContent = '';
+        return;
+      } else {
+        chartHint.textContent = '';
+      }
+
+      // Bornes X avec petite marge
+      const vMin = Math.min(...values, LSL);
+      const vMax = Math.max(...values, USL);
+      const span = Math.max(0.001, vMax - vMin);
+      const pad = span * 0.08;
+      const xMin = Math.max(0, vMin - pad);
+      const xMax = vMax + pad;
+
+      // Echelles
+      const x = v => m.l + ((v - xMin) / (xMax - xMin)) * PW;
+      const y = v => m.t + PH - v;
+
+      // Binning
+      const n = values.length;
+      const binsCount = n >= 30 ? 12 : Math.max(5, Math.round(Math.sqrt(n)));
+      const counts = new Array(binsCount).fill(0);
+      for (const v of values){
+        let idx = Math.floor((v - xMin) / (xMax - xMin) * binsCount);
+        if (idx < 0) idx = 0;
+        if (idx >= binsCount) idx = binsCount - 1;
+        counts[idx]++;
+      }
+      const maxCount = Math.max(1, ...counts);
+      const scaleY = c => (c / maxCount) * (PH * 0.9);
+
+      // Grille Y + labels
+      const yTicks = 5;
+      for (let i = 0; i <= yTicks; i++){
+        const frac = i / yTicks;
+        const gy = m.t + PH - frac * PH;
+        chart.appendChild(el('line', { x1:m.l, y1:gy, x2:m.l + PW, y2:gy, class:'chart-grid' }));
+        const lbl = el('text', { x:m.l - 8, y:gy + 4, class:'chart-text', 'text-anchor':'end' });
+        lbl.textContent = Math.round(frac * maxCount);
+        chart.appendChild(lbl);
+      }
+
+      // Graduation X
+      const xTicks = 6;
+      for (let i = 0; i <= xTicks; i++){
+        const vx = xMin + i * (xMax - xMin) / xTicks;
+        const gx = x(vx);
+        chart.appendChild(el('line', { x1:gx, y1:m.t + PH, x2:gx, y2:m.t + PH + 6, stroke:'#94a3b8' }));
+        const lbl = el('text', { x:gx, y:m.t + PH + 20, class:'chart-text', 'text-anchor':'middle' });
+        lbl.textContent = vx.toFixed(3);
+        chart.appendChild(lbl);
+      }
+
+      // Histogramme
+      const binW = (xMax - xMin) / binsCount;
+      const pixelBarW = PW / binsCount - 2;
+      for (let i=0; i<binsCount; i++){
+        const vx0 = xMin + i * binW;
+        const c = counts[i];
+        const bh = scaleY(c);
+        chart.appendChild(el('rect', {
+          x: x(vx0) + 1,
+          y: y(bh),
+          width: Math.max(1, pixelBarW),
+          height: bh,
+          class: 'bar-rect'
+        }));
+      }
+
+      // Lignes de tolérances
+      chart.appendChild(el('line', { x1:x(LSL), y1:m.t, x2:x(LSL), y2:m.t+PH, class:'limit-line' }));
+      chart.appendChild(el('line', { x1:x(USL), y1:m.t, x2:x(USL), y2:m.t+PH, class:'limit-line' }));
+
+      // Labels axes
+      const xl = el('text', { x:m.l + PW/2, y:H-8, class:'chart-text', 'text-anchor':'middle' });
+      xl.textContent = 'Diamètre (mm)';
+      chart.appendChild(xl);
+      const yl = el('text', { x:14, y:m.t + PH/2, class:'chart-text', transform:`rotate(-90 14 ${m.t + PH/2})`, 'text-anchor':'middle' });
+      yl.textContent = 'Comptes';
+      chart.appendChild(yl);
+
+      // Stat synthétique
+      const okCount = loadHistory().filter(h => h.ok).length;
+      const nVals = values.length;
+      const pctOK = (okCount / nVals) * 100;
+      const mu = mean(values);
+      const sigma = sdSample(values);
+      chartStats.textContent = `n = ${nVals} • moyenne = ${mu.toFixed(3)} • écart-type (éch.) = ${sigma.toFixed(3)} • % OK = ${pctOK.toFixed(1)}%`;
+    }
+
+    // Validation / Reset
+    function validatePiece(){
+      const ok = (d >= LSL && d <= USL);
+      const entry = { d: Number(d.toFixed(3)), ok, lsl:LSL, usl:USL, d0, ts: Date.now(), mode };
+      saveHistoryEntry(entry);
+      lastMsg.textContent = `Pièce validée: Ø ${entry.d.toFixed(3)} mm — ${ok ? 'OK' : 'NC'}.`;
+      // Alterner le mode 1 fois sur 2
+      toggleMode();
+      // Repartir selon le mode courant (nouvelle pièce)
+      setInitial(d0);
+    }
+
+    // Evénements
+    applyBtn.addEventListener('click', ()=>{
+      setInitial(d0Input.value);
+      setTolerances(lslInput.value, uslInput.value);
+      lastMsg.textContent = 'Paramètres appliqués.';
+    });
+    d0Input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') applyBtn.click(); });
+    [lslInput, uslInput].forEach(inp => inp.addEventListener('keydown',(e)=>{ if(e.key==='Enter') applyBtn.click(); }));
+
+    cutBtn.addEventListener('pointerdown', onPointerDown);
+    cutBtn.addEventListener('pointerup', onPointerUp);
+    cutBtn.addEventListener('pointerleave', onPointerUp);
+    document.addEventListener('pointercancel', onPointerUp);
+
+    validateBtn.addEventListener('click', validatePiece);
+
+    resetBtn.addEventListener('click', ()=>{
+      setInitial(d0Input.value);
+      setTolerances(lslInput.value, uslInput.value);
+      lastMsg.textContent = 'Réinitialisé.';
+    });
+
+    copyHistoryBtn.addEventListener('click', copyHistory);
+
+    // Barre espace = appui long
+    document.addEventListener('keydown', (e)=>{
+      if (e.code === 'Space'){ e.preventDefault(); if (!continuous) startContinuous(); }
+    });
+    document.addEventListener('keyup', (e)=>{
+      if (e.code === 'Space'){ e.preventDefault(); stopContinuous(); }
+    });
+
+    clearHistoryBtn.addEventListener('click', ()=>{
+      if (confirm('Effacer l’historique des pièces validées ?')) clearHistory();
+    });
+
+    // Init
+    setInitial(d0);
+    setTolerances(LSL, USL);
+    d0Input.value = d0.toFixed(3);
+    lslInput.value = LSL.toFixed(3);
+    uslInput.value = USL.toFixed(3);
+    updateVisual(true);
+    updateModeUI();
+    renderChart();
+  </script>
+</body>
+</html>

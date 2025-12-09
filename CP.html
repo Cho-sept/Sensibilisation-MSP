@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Jeu — Associe les images aux étiquettes</title>
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --panel:#141a2f; --border:#263046;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      /* Taille commune des images (cibles, voitures, courbes) */
+      --image-height: 140px;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1200px;margin:0 auto;padding:1rem}
+    h1{font-size:1.35rem;margin:.5rem 0 1rem}
+
+    /* Onglets */
+    .tabs{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}
+    .tab-btn{
+      padding:.55rem .8rem;border-radius:.5rem;border:1px solid var(--border);
+      background:transparent;color:var(--fg);cursor:pointer;font-weight:700
+    }
+    .tab-btn.active{background:#0f172a;border-color:#334155}
+
+    /* Actions */
+    .actions{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}
+    .btn{padding:.55rem .8rem;border-radius:.5rem;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;font-weight:700}
+    .btn.secondary{border-color:#94a3b8;color:#94a3b8}
+
+    /* Plateau */
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.75rem;padding:1rem;position:relative}
+    .board{
+      display:grid;grid-template-columns:1fr 1fr;
+      gap:8rem; /* grand espace pour tracer les lignes */
+      align-items:stretch; /* mêmes hauteurs pour les 2 colonnes */
+      position:relative;min-height:560px
+    }
+    .side{
+      border:1px dashed #334155;border-radius:.75rem;padding:.75rem;
+      position:relative; z-index:1;
+      display:flex; flex-direction:column;
+    }
+    .side h2{margin:0 0 .5rem;font-size:1rem;color:var(--muted)}
+
+    /* Colonnes */
+    #leftStack{display:flex;flex-direction:column;gap:.9rem;flex:1}
+    /* Distribuer les étiquettes verticalement sans les agrandir */
+    #rightStack{
+      display:flex; flex-direction:column; flex:1;
+      justify-content:space-evenly; gap:0;
+    }
+
+    /* Cartes image (vertical) */
+    .card{
+      background:#0f172a;border:1px solid #334155;border-radius:.65rem;
+      overflow:visible; /* pour voir l’ancre hors de la carte */
+      display:flex;align-items:center;justify-content:center;
+      position:relative; z-index:0;
+      /* Hauteur de carte cohérente avec la taille image */
+      min-height: calc(var(--image-height) + 40px);
+      padding:10px; /* un peu d’air autour de l’image */
+    }
+    /* Fond blanc derrière les images dans l’onglet Courbes */
+    .board[data-family="courbe"] .card{ background:#ffffff; }
+
+    /* Image: même taille partout (cibles = courbes = voitures) */
+    .card img{
+      height: var(--image-height);
+      width:auto;
+      max-width:100%;
+      display:block;
+      object-fit:contain;
+    }
+
+    .card .tag{
+      position:absolute;top:.35rem;left:.35rem;background:#111827;border:1px solid #374151;
+      color:#cbd5e1;border-radius:.4rem;padding:.15rem .4rem;font-size:.8rem
+    }
+
+    /* Étiquettes (vertical) */
+    .label{
+      background:#0f172a;border:2px solid #334155;border-radius:.65rem;
+      padding:.8rem 1rem;display:flex;align-items:center;position:relative;
+      overflow:visible; z-index:0; /* on laisse sa taille naturelle */
+      min-height:84px;
+    }
+    .label .text{font-size:1rem;line-height:1.45;white-space:pre-line;font-weight:700}
+    .good{color:var(--ok);font-weight:800}
+    .bad{color:var(--err);font-weight:800}
+
+    /* Points de connexion — ronds à l’EXTÉRIEUR des conteneurs */
+    .anchor{
+      position:absolute;width:18px;height:18px;border-radius:999px;background:#111827;
+      border:2px solid #94a3b8;box-shadow:0 0 0 2px rgba(148,163,184,.15);
+      cursor:pointer;transition:transform .08s, box-shadow .12s, border-color .12s, background .12s;
+      z-index:20; touch-action:none;
+    }
+    .anchor:hover{transform:scale(1.08);box-shadow:0 0 0 3px rgba(148,163,184,.25)}
+    .anchor.selected{background:#1f2937;border-color:#60a5fa;box-shadow:0 0 0 3px rgba(96,165,250,.35)}
+    .anchor.used{background:#0b1220;border-color:#64748b;opacity:.9}
+    .anchor.left{top:50%; right:-18px; transform:translate(50%,-50%)}
+    .anchor.right{top:50%; left:-18px;  transform:translate(-50%,-50%)}
+
+    /* Liaisons (au-dessus des conteneurs pour rester visibles) */
+    svg.links{position:absolute;inset:0;pointer-events:none;z-index:10}
+    .link{stroke:#60a5fa;stroke-width:3;fill:none;opacity:.95;pointer-events:auto;cursor:pointer}
+    .link.correct{stroke:#22c55e}
+    .link.wrong{stroke:#f87171}
+    .link:hover{filter:brightness(1.15)}
+    .link.temp{stroke:#cbd5e1;stroke-dasharray:8 6;opacity:.6}
+
+    /* Infos */
+    .status{margin-top:.5rem;color:var(--muted)}
+    .score{margin-top:.35rem;color:#cbd5e1}
+
+    @media (max-width:1000px){
+      .board{gap:5rem}
+    }
+    @media (max-width:800px){
+      .board{gap:3rem}
+      :root{ --image-height: 120px; } /* même logique, juste un peu plus compact sur petit écran */
+    }
+    .back-link,
+    .back-link:visited { color: #fff; }
+    .back-link:hover,
+    .back-link:focus-visible { color: #e5e7eb; }
+    
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
+    <h1>Jeu — Associe chaque image à la bonne étiquette</h1>
+     <p>La dispersion : La dispersion, c’est à quel point des valeurs s’éparpillent.<br>Si elles sont très regroupées, la dispersion est faible, si elles sont très éloignées les unes des autres, la dispersion est forte.<br><br> Le centrage : Le centrage, c’est où se situe la moyenne par rapport à la valeur cible et aux limites.<br>Si la moyenne est au milieu (proche de la cible), le centrage est bon, si elle est décalée vers la gauche ou la droite (proche d’un bord), le centrage est mauvais.</p> </p>
+
+
+
+    <div class="tabs" role="tablist" aria-label="Familles d’images">
+      <button class="tab-btn active" data-family="cible" role="tab" aria-selected="true">Cibles</button>
+      <button class="tab-btn" data-family="voiture" role="tab" aria-selected="false">Voitures</button>
+      <button class="tab-btn" data-family="courbe" role="tab" aria-selected="false">Courbes</button>
+    </div>
+
+    <div class="actions">
+      <button id="resetTab" class="btn">Réinitialiser l’onglet</button>
+      <button id="resetAll" class="btn secondary">Réinitialiser tout</button>
+    </div>
+
+    <div class="panel">
+      <div class="board" id="board" data-family="cible">
+        <!-- Colonne gauche: images -->
+        <section class="side" aria-label="Images à associer">
+          <h2>Images (ordre aléatoire)</h2>
+          <div id="leftStack" class="stack"></div>
+        </section>
+
+        <!-- Colonne droite: étiquettes -->
+        <section class="side" aria-label="Étiquettes de texte">
+          <h2>Étiquettes (ordre aléatoire)</h2>
+          <div id="rightStack" class="stack"></div>
+        </section>
+
+        <!-- Calque SVG pour les liaisons -->
+        <svg id="links" class="links" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+      </div>
+
+      <p id="status" class="status" aria-live="polite"></p>
+      <p id="score" class="score"></p>
+    </div>
+  </div>
+
+  <script>
+    // Utilitaires DOM
+    const $ = (sel, ctx=document) => ctx.querySelector(sel);
+    const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
+
+    // Éléments
+    const tabs = $$('.tab-btn');
+    const resetTabBtn = $('#resetTab');
+    const resetAllBtn = $('#resetAll');
+    const leftStack = $('#leftStack');
+    const rightStack = $('#rightStack');
+    const board = $('#board');
+    const linksSvg = $('#links');
+    const statusEl = $('#status');
+    const scoreEl = $('#score');
+
+    // IMPORTANT: chemin d’images locales (file:///)
+    const BASE_PATH = 'file:///C:/Users/464048/Desktop/Work/MSP/Formation%20MSP/Pics%20CP-Cpk/';
+    function fileUrl(name){ return BASE_PATH + encodeURIComponent(name); }
+
+    // Familles d’images
+    const FAMILIES = {
+      cible: [
+        { id: 1, src: fileUrl('Cible 1.png'), alt: 'Cible — mauvais centrage, mauvaise dispersion' },
+        { id: 2, src: fileUrl('Cible 2.png'), alt: 'Cible — mauvais centrage, bonne dispersion' },
+        { id: 3, src: fileUrl('Cible 3.png'), alt: 'Cible — bon centrage, mauvaise dispersion' },
+        { id: 4, src: fileUrl('Cible 4.png'), alt: 'Cible — bon centrage, bonne dispersion' },
+      ],
+      voiture: [
+        { id: 1, src: fileUrl('Voiture 1.png'), alt: 'Voiture — mauvais centrage, mauvaise dispersion' },
+        { id: 2, src: fileUrl('Voiture 2.png'), alt: 'Voiture — mauvais centrage, bonne dispersion' },
+        { id: 3, src: fileUrl('Voiture 3.png'), alt: 'Voiture — bon centrage, mauvaise dispersion' },
+        { id: 4, src: fileUrl('Voiture 4.png'), alt: 'Voiture — bon centrage, bonne dispersion' },
+      ],
+      courbe: [
+        { id: 1, src: fileUrl('Courbe 1.png'), alt: 'Courbe — mauvais centrage, mauvaise dispersion' },
+        { id: 2, src: fileUrl('Courbe 2.png'), alt: 'Courbe — mauvais centrage, bonne dispersion' },
+        { id: 3, src: fileUrl('Courbe 3.png'), alt: 'Courbe — bon centrage, mauvaise dispersion' },
+        { id: 4, src: fileUrl('Courbe 4.png'), alt: 'Courbe — bon centrage, bonne dispersion' },
+      ],
+    };
+
+    // Étiquettes
+    const LABELS = [
+      { key:'bad-bad',   title:'Centrage : Mauvais\nDispersion : Mauvaise' },
+      { key:'bad-good',  title:'Centrage : Mauvais\nDispersion : Bonne'    },
+      { key:'good-bad',  title:'Centrage : Bon\nDispersion : Mauvaise'     },
+      { key:'good-good', title:'Centrage : Bon\nDispersion : Bonne'         },
+    ];
+
+    // Règle d’association (image -> étiquette)
+    const MAP_ID_TO_LABEL = { 1:'bad-bad', 2:'bad-good', 3:'good-bad', 4:'good-good' };
+
+    // État
+    let activeFamily = 'cible';
+    let selectedAnchor = null; // point sélectionné pour connexion par clic
+    let totalScore = { cible:0, voiture:0, courbe:0 };
+    const connections = new Set(); // stocke les objets connexion
+    const connByLeft = new Map();  // id -> conn
+    const connByRight = new Map(); // key -> conn
+    let tempPath = null;           // ligne temporaire pendant un glisser
+
+    // Utils
+    function shuffle(arr){
+      const a = arr.slice();
+      for(let i=a.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [a[i],a[j]] = [a[j],a[i]];
+      }
+      return a;
+    }
+    function clear(node){ node.innerHTML=''; }
+    function setStatus(txt){ statusEl.textContent = txt || ''; }
+    function updateScoreText(){
+      const s = totalScore;
+      scoreEl.textContent = `Score: Cibles ${s.cible}/4 • Voitures ${s.voiture}/4 • Courbes ${s.courbe}/4`;
+    }
+    // Coloration complète des mots-clés
+    function makeLabelHtml(text){
+      return text
+        .replace(/\b(Mauvaise|Mauvais)\b/g, '<span class="bad">$1</span>')
+        .replace(/\b(Bonne|Bon)\b/g, '<span class="good">$1</span>');
+    }
+
+    // Anchor helpers
+    function getAnchorCenter(anchor){
+      const brBoard = board.getBoundingClientRect();
+      const br = anchor.getBoundingClientRect();
+      return { x: br.left - brBoard.left + br.width/2, y: br.top - brBoard.top + br.height/2 };
+    }
+    function makeCurvePath(p1, p2){
+      const dx = Math.abs(p2.x - p1.x);
+      const k = Math.max(60, dx * 0.35);
+      return `M ${p1.x} ${p1.y} C ${p1.x + k} ${p1.y}, ${p2.x - k} ${p2.y}, ${p2.x} ${p2.y}`;
+    }
+    function addSvgPath(d, cls='link'){
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('d', d);
+      p.setAttribute('class', cls);
+      linksSvg.appendChild(p);
+      return p;
+    }
+    function removeConnection(conn){
+      if (!conn) return;
+      connections.delete(conn);
+      if (conn.leftId && connByLeft.get(conn.leftId) === conn) connByLeft.delete(conn.leftId);
+      if (conn.rightKey && connByRight.get(conn.rightKey) === conn) connByRight.delete(conn.rightKey);
+      if (conn.path && conn.path.parentNode) conn.path.parentNode.removeChild(conn.path);
+      // Libérer les points
+      if (conn.leftAnchor){ conn.leftAnchor.classList.remove('used'); conn.leftAnchor.dataset.connected = '0'; }
+      if (conn.rightAnchor){ conn.rightAnchor.classList.remove('used'); conn.rightAnchor.dataset.connected = '0'; }
+      refreshScoreForActiveFamily();
+    }
+    function refreshScoreForActiveFamily(){
+      let correctCount = 0;
+      connections.forEach(c=>{
+        if (c.family === activeFamily && c.correct) correctCount++;
+      });
+      totalScore[activeFamily] = correctCount;
+      updateScoreText();
+    }
+
+    // Rendu d’un onglet
+    function renderFamily(fam){
+      activeFamily = fam;
+      board.setAttribute('data-family', fam); // styles dépendants de l’onglet
+      selectedAnchor = null;
+      setStatus('');
+      clear(leftStack);
+      clear(rightStack);
+      clear(linksSvg);
+      connections.clear(); connByLeft.clear(); connByRight.clear();
+      totalScore[fam] = 0; updateScoreText();
+
+      // Images (ordre aléatoire, empilées verticalement)
+      const imgs = shuffle(FAMILIES[fam]);
+      imgs.forEach(img=>{
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = String(img.id);
+
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = `Image N°${img.id}`;
+        card.appendChild(tag);
+
+        const im = document.createElement('img');
+        im.src = img.src;
+        im.alt = img.alt;
+        im.addEventListener('error', ()=>{
+          im.remove();
+          const em = document.createElement('div');
+          em.style.color = '#f87171';
+          em.style.padding = '0.7rem';
+          em.style.textAlign = 'center';
+          em.innerHTML = 'Image introuvable<br><small>(vérifiez BASE_PATH et le nom de fichier)</small>';
+          card.appendChild(em);
+        });
+        card.appendChild(im);
+
+        // Point de connexion (à droite de l'image, visible à l’extérieur)
+        const anchor = document.createElement('button');
+        anchor.className = 'anchor left';
+        anchor.type = 'button';
+        anchor.dataset.side = 'left';
+        anchor.dataset.id = String(img.id);
+        anchor.dataset.connected = '0';
+        anchor.setAttribute('aria-label', `Point de l’Image N°${img.id}`);
+        setupAnchorInteractions(anchor);
+        card.appendChild(anchor);
+
+        leftStack.appendChild(card);
+      });
+
+      // Étiquettes (ordre aléatoire, distribuées verticalement sans agrandir)
+      const lbls = shuffle(LABELS);
+      lbls.forEach(lbl=>{
+        const lab = document.createElement('div');
+        lab.className = 'label';
+        lab.dataset.key = lbl.key;
+
+        // Point de connexion (à gauche de l’étiquette, visible à l’extérieur)
+        const anchor = document.createElement('button');
+        anchor.className = 'anchor right';
+        anchor.type = 'button';
+        anchor.dataset.side = 'right';
+        anchor.dataset.key = lbl.key;
+        anchor.dataset.connected = '0';
+        anchor.setAttribute('aria-label', `Point de l’étiquette ${lbl.key}`);
+        setupAnchorInteractions(anchor);
+        lab.appendChild(anchor);
+
+        const tx = document.createElement('div');
+        tx.className = 'text';
+        tx.innerHTML = makeLabelHtml(lbl.title);
+        lab.appendChild(tx);
+
+        rightStack.appendChild(lab);
+      });
+
+      // Adapter la vue SVG aux dimensions du board
+      resizeSvgToBoard();
+    }
+
+    // Adapter le SVG à la taille réelle du plateau
+    function resizeSvgToBoard(){
+      const br = board.getBoundingClientRect();
+      linksSvg.setAttribute('viewBox', `0 0 ${br.width} ${br.height}`);
+    }
+    window.addEventListener('resize', ()=>{
+      resizeSvgToBoard();
+      // Replacer les chemins si la page bouge
+      connections.forEach(conn=>{
+        const p1 = getAnchorCenter(conn.leftAnchor);
+        const p2 = getAnchorCenter(conn.rightAnchor);
+        conn.path.setAttribute('d', makeCurvePath(p1, p2));
+      });
+      if (tempPath && tempPath._p1){
+        const p1 = tempPath._p1;
+        tempPath.setAttribute('d', makeCurvePath(p1, p1));
+      }
+    });
+
+    // Interactions sur un point — clic simple (sélection) + glisser avec seuil
+    function setupAnchorInteractions(anchor){
+      const DRAG_THRESHOLD = 6; // px pour basculer en mode drag
+      let startX = 0, startY = 0, dragging = false;
+
+      const handleClickSelection = ()=>{
+        if (anchor.dataset.connected === '1'){
+          setStatus('Ce point est déjà relié. Supprimez la liaison en cliquant sur la ligne.');
+          return;
+        }
+        if (!selectedAnchor){
+          selectedAnchor = anchor;
+          anchor.classList.add('selected');
+          setStatus('Sélectionne un second point pour relier.');
+          return;
+        }
+        if (selectedAnchor === anchor){
+          anchor.classList.remove('selected');
+          selectedAnchor = null;
+          setStatus('');
+          return;
+        }
+        if (selectedAnchor.dataset.side === anchor.dataset.side){
+          selectedAnchor.classList.remove('selected');
+          selectedAnchor = anchor;
+          anchor.classList.add('selected');
+          return;
+        }
+        connectAnchors(selectedAnchor, anchor);
+        selectedAnchor.classList.remove('selected');
+        selectedAnchor = null;
+      };
+
+      anchor.addEventListener('pointerdown', (e)=>{
+        e.preventDefault();
+        startX = e.clientX;
+        startY = e.clientY;
+        dragging = false;
+        anchor.setPointerCapture(e.pointerId);
+
+        const onMove = (ev)=>{
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (!dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD){
+            if (anchor.dataset.connected === '1') return;
+            const p1 = getAnchorCenter(anchor);
+            tempPath = addSvgPath(makeCurvePath(p1, p1), 'link temp');
+            tempPath._p1 = p1;
+            dragging = true;
+          }
+          if (dragging && tempPath){
+            const br = board.getBoundingClientRect();
+            const x = ev.clientX - br.left;
+            const y = ev.clientY - br.top;
+            tempPath.setAttribute('d', makeCurvePath(tempPath._p1, {x,y}));
+          }
+        };
+
+        const onUp = (ev)=>{
+          anchor.releasePointerCapture(ev.pointerId);
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+
+          if (!dragging){
+            // Clic simple → sélection/désélection
+            handleClickSelection();
+          } else {
+            // Fin du drag → connecter si une ancre opposée est sous le pointeur
+            const target = findAnchorUnderPointer(ev, anchor.dataset.side==='left' ? 'right' : 'left');
+            if (target){
+              connectAnchors(anchor, target);
+            }
+            if (tempPath && tempPath.parentNode){ tempPath.parentNode.removeChild(tempPath); }
+            tempPath = null;
+          }
+        };
+
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onUp);
+      });
+    }
+
+    // Trouver un point de l’autre côté sous le pointeur
+    function findAnchorUnderPointer(ev, side){
+      const anchors = $$('.anchor.'+(side==='left'?'left':'right'), board);
+      const x = ev.clientX, y = ev.clientY;
+      for (const a of anchors){
+        const r = a.getBoundingClientRect();
+        if (x>=r.left && x<=r.right && y>=r.top && y<=r.bottom){
+          if (a.dataset.connected === '0') return a;
+        }
+      }
+      return null;
+    }
+
+    // Créer une connexion entre 2 points
+    function connectAnchors(a1, a2){
+      const leftAnchor = a1.dataset.side==='left' ? a1 : a2;
+      const rightAnchor = a1.dataset.side==='right' ? a1 : a2;
+
+      // Libérer connexions existantes si utilisées
+      const oldL = connByLeft.get(Number(leftAnchor.dataset.id));
+      const oldR = connByRight.get(rightAnchor.dataset.key);
+      if (oldL) removeConnection(oldL);
+      if (oldR) removeConnection(oldR);
+
+      // Positions et chemin
+      const p1 = getAnchorCenter(leftAnchor);
+      const p2 = getAnchorCenter(rightAnchor);
+      const path = addSvgPath(makeCurvePath(p1, p2), 'link');
+
+      // Évaluer correct/incorrect
+      const id = Number(leftAnchor.dataset.id);
+      const key = rightAnchor.dataset.key;
+      const correct = (MAP_ID_TO_LABEL[id] === key);
+      path.classList.add(correct ? 'correct' : 'wrong');
+
+      // Stocker connexion
+      const conn = { family: activeFamily, leftId:id, rightKey:key, leftAnchor, rightAnchor, path, correct };
+      connections.add(conn);
+      connByLeft.set(id, conn);
+      connByRight.set(key, conn);
+
+      // Marquer points
+      leftAnchor.classList.add('used');
+      rightAnchor.classList.add('used');
+      leftAnchor.dataset.connected = '1';
+      rightAnchor.dataset.connected = '1';
+
+      // Cliquer sur une ligne pour la supprimer
+      path.addEventListener('click', ()=>{
+        removeConnection(conn);
+        setStatus('Liaison supprimée.');
+      });
+
+      setStatus(correct ? 'Association correcte.' : 'Association incorrecte (rouge).');
+      refreshScoreForActiveFamily();
+    }
+
+    // Boutons
+    function resetTab(){
+      renderFamily(activeFamily);
+      setStatus('Onglet réinitialisé: images et étiquettes mélangées. Liaisons effacées.');
+    }
+    function resetAll(){
+      totalScore = { cible:0, voiture:0, courbe:0 };
+      renderFamily(activeFamily);
+      setStatus('Jeu réinitialisé: scores remis à zéro et contenu mélangé.');
+    }
+    resetTabBtn.addEventListener('click', resetTab);
+    resetAllBtn.addEventListener('click', resetAll);
+
+    // Onglets
+    tabs.forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        tabs.forEach(b=>{
+          const active = b===btn;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-selected', active?'true':'false');
+        });
+        renderFamily(btn.dataset.family);
+      });
+    });
+
+    // Init
+    renderFamily(activeFamily);
+    updateScoreText();
+  </script>
+</body>
+</html>

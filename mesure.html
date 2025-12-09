@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contrôle à la mesure — Simulation</title>
+  <meta name="description" content="Révélez des mesures aléatoires. Arrêt dès qu’une mesure > 2. Cpk (LSL=0, USL=2) et % NC estimé en direct. Visualisation des mesures > 2 avec histogrammes et courbe gaussienne." />
+  <style>
+    :root {
+      --bg: #0b1020; --fg: #e5e7eb; --muted:#a3b1c6;
+      --surface:#141a2f; --accent:#60a5fa; --ok:#22c55e; --err:#f87171; --warn:#f59e0b;
+      --card-border:#263046;
+      --bar:#93c5fd; --bar2:#6aa0f4;
+    }
+    html,body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,Segoe UI,Roboto,Arial; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+    a.back-link, a.back-link:visited { color:#fff; text-decoration:none; }
+    a.back-link:hover, a.back-link:focus-visible { color:#e5e7eb; outline:2px solid #e5e7eb; outline-offset:2px; }
+    h1 { font-size: 1.6rem; margin: .5rem 0 1rem; }
+    .controls { display: grid; gap: .75rem; grid-template-columns: repeat(6, minmax(0,1fr)); align-items: end; }
+    .btn { padding:.6rem .9rem; border-radius:.5rem; border:1px solid var(--accent); color:var(--accent); background:transparent; cursor:pointer; font-weight:600; }
+    .btn.primary { background:var(--accent); color:#0b1020; border-color:var(--accent); }
+    .btn:disabled { opacity:.6; cursor:not-allowed; }
+    .stats { display:flex; gap:1rem; flex-wrap:wrap; margin:.75rem 0; font-size:.95rem; }
+    .stat { background:var(--surface); padding:.5rem .75rem; border-radius:.5rem; border:1px solid var(--card-border); }
+
+    /* Nouvelle mise en page: grille + graphiques à droite */
+    .viz-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 600px) 1fr;
+      gap: 1rem;
+      align-items: start;
+    }
+    .left { min-width: 0; }
+    .right { display: grid; gap: 1rem; align-content: start; }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: .75rem;
+      padding: .5rem .75rem .75rem;
+    }
+    .chart-title { font-size: .95rem; color: var(--muted); margin-bottom: .5rem; }
+    canvas.chart {
+      display: block;
+      width: 360px;
+      height: 220px;
+      /* Taille CSS (le JS gère le ratio pixel) */
+    }
+
+    .board {
+      margin-top: 0; /* décalage réduit */
+      display: grid; gap: 4px; /* tuiles un peu plus serrées */
+      grid-template-columns: repeat(10, 1fr);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), transparent);
+      padding: 6px; border-radius: .75rem; border:1px solid var(--card-border);
+    }
+    .tile {
+      aspect-ratio: 1 / 1;
+      background:#0f172a;
+      border:1px solid #334155;
+      border-radius:.4rem;
+      display:flex; align-items:center; justify-content:center;
+      cursor:pointer; font-weight:700; user-select:none;
+      transition: transform .05s ease-in-out, background .15s, border-color .15s;
+      color:#93c5fd; position: relative;
+      font-size: .85rem; /* texte de tuile plus petit */
+    }
+    .tile:active { transform: scale(0.98); }
+    .tile.safe { background:#12213d; }
+    .tile.nc { background:#3a1620; color:var(--err); border-color:#4b1a25; }
+
+    /* Aperçu (afficher/masquer) des mesures > 2 sans révéler */
+    .tile.has-nc::after {
+      content: '> 2';
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .12s ease-in-out;
+      pointer-events: none; font-weight:800; font-size: 0.95rem;
+      color: var(--err); background: rgba(220,38,38,.20);
+      border-radius: .4rem;
+    }
+    .show-nc .tile.has-nc:not(.safe):not(.nc)::after { opacity: 1; }
+
+    .help { font-size:.92rem; color:var(--muted); }
+    .badge { display:inline-block; padding:.1rem .4rem; border-radius:.4rem; font-size:.8rem; background:rgba(96,165,250,.18); color:#93c5fd; }
+
+    @media (max-width: 720px) {
+      .controls { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .viz-layout { grid-template-columns: 1fr; }
+      .right canvas.chart { width: 100%; height: 220px; }
+    }
+
+    /* petit style pour la liste historique */
+    ol.history { padding-left:1.25rem; }
+    ol.history li { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
+    <h1>Le contrôle à la mesure — Simulation</h1>
+
+    <div class="controls" aria-label="Actions">
+      <button id="startBtn" class="btn primary">Lancer la simulation</button>
+      <button id="resetBtn" class="btn">Réinitialiser</button>
+      <button id="peekBtn" class="btn" disabled>Afficher > 2</button>
+      <button id="copyHistoryBtn" class="btn" disabled>Copier l’historique</button>
+      <button id="clearHistoryBtn" class="btn">Effacer l’historique</button>
+      <span id="status" class="badge" aria-live="polite">Prêt</span>
+    </div>
+
+    <div class="stats" aria-live="polite">
+      - <div class="stat">Essais (révélés): <strong id="tries">0</strong></div>
+      <div class="stat">% NC estimé: <strong id="pctNC">—</strong></div>
+      <div class="stat">Cpk (LSL=0, USL=2): <strong id="cpk">—</strong></div>
+      <div class="stat">Nombre de tirage avant d'identifier 5% de NC: N = <strong id="n5pct">0</strong></div>
+    </div>
+
+    <!-- Nouvelle mise en page: grille + graphiques -->
+    <div class="viz-layout">
+      <div class="left">
+        <div id="board" class="board" role="grid" aria-label="Grille de 100 mesures (10 par 10)"></div>
+      </div>
+      <div class="right">
+        <div class="chart-card">
+          <div class="chart-title">Attributif — Histogramme</div>
+          <canvas id="attrChart" class="chart"></canvas>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Mesure — Gaussienne estimée</div>
+          <canvas id="gaussChart" class="chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div id="summary" class="stats" style="margin-top:1rem; display:none;">
+      <div class="stat">Arrêt en <strong id="stopTries">0</strong> tirage(s) (première mesure > 2)</div>
+      <div class="stat">Seuil “5% estimé stabilisé” atteint à <strong id="stableAt">—</strong> tirage(s)</div>
+    </div>
+
+    <div style="margin-top:1rem;">
+      <div class="help">Historique (arrêt;N à 5% — 20 plus récents):</div>
+      <ol id="historyList" class="help history"></ol>
+    </div>
+
+    <p class="help">Cliquez les tuiles pour révéler les mesures. La simulation s’arrête dès qu’une mesure est strictement supérieure à 2.</p>
+  </div>
+
+  <script>
+    // Mesures (100) — fournies
+    const MEASURES = [
+      1.83,1.76,1.91,1.72,1.88,1.69,1.95,1.79,2.02,1.74,
+      1.84,1.66,1.86,1.77,1.93,1.71,1.82,2.02,1.97,1.75,
+      1.90,1.80,1.73,1.85,1.78,1.94,1.70,1.92,1.89,1.81,
+      1.65,1.88,1.76,1.83,1.72,1.96,1.87,1.74,1.99,1.77,
+      1.60,1.84,1.67,1.86,1.91,1.75,2.01,1.82,1.71,1.93,
+      1.52,1.79,2.05,1.90,1.68,1.85,1.78,1.72,1.88,1.81,
+      1.55,1.74,1.66,1.83,1.77,1.94,1.69,1.80,1.92,2.03,
+      1.73,1.76,1.62,1.89,1.71,1.84,1.70,1.87,1.95,1.82,
+      1.58,1.75,1.64,1.86,1.72,1.79,1.91,1.68,2.00,1.78,
+      1.45,1.73,1.60,1.88,1.67,1.85,1.93,1.74,2.00,1.76
+    ];
+
+    // Limites
+    const LSL = 0.0;
+    const USL = 2.0;
+    const THRESHOLD = 0.05; // 5%
+    const BIN_WIDTH = 0.10;
+
+    // Utils DOM
+    const $ = (s, ctx=document)=>ctx.querySelector(s);
+    const $$ = (s, ctx=document)=>Array.from(ctx.querySelectorAll(s));
+    const fmt = (n, d=2)=>Number(n).toLocaleString('fr-FR', { maximumFractionDigits:d, minimumFractionDigits:d });
+    const store = {
+      get(key, fallback=null){ try{ return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+      set(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+    };
+
+    // Normal CDF via erf approximation
+    function erf(x) {
+      const sign = x < 0 ? -1 : 1;
+      x = Math.abs(x);
+      const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+      const t = 1/(1+p*x);
+      const y = 1 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*Math.exp(-x*x);
+      return sign*y;
+    }
+    function normalCdf(z){ return 0.5 * (1 + erf(z / Math.SQRT2)); }
+    function normalPdf(x, mu, sd) {
+      if (!isFinite(sd) || sd <= 0) return 0;
+      const z = (x - mu) / sd;
+      return (1 / (sd * Math.sqrt(2*Math.PI))) * Math.exp(-0.5 * z * z);
+    }
+
+    // Mélange
+    function shuffle(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    // Stats cumulées (Cpk bilatéral sur échantillon révélé)
+    function cpkFrom(values, lsl=LSL, usl=USL) {
+      const n = values.length;
+      if (n < 2) return null; // sd non définie
+      const mean = values.reduce((s,v)=>s+v,0) / n;
+      const varSample = values.reduce((s,v)=>s + (v-mean)*(v-mean), 0) / (n-1);
+      const sd = Math.sqrt(varSample);
+      if (sd === 0) return null;
+      const cpu = (usl - mean) / (3*sd);
+      const cpl = (mean - lsl) / (3*sd);
+      return Math.min(cpu, cpl);
+    }
+
+    // % NC estimé à partir du Cpk: 100 * 2 * (1 - Phi(3*Cpk))
+    function estimatedNCPercentFromCpk(cpk) {
+      if (cpk == null || !isFinite(cpk)) return null;
+      const p = 2 * (1 - normalCdf(3 * cpk)); // proportion
+      return Math.max(0, Math.min(1, p)) * 100; // en %
+    }
+
+    // Éléments
+    const board = $('#board');
+    const startBtn = $('#startBtn');
+    const resetBtn = $('#resetBtn');
+    const peekBtn = $('#peekBtn');
+    const statusEl = $('#status');
+    const triesEl = $('#tries');
+    const pctNCEl = $('#pctNC');
+    const cpkEl = $('#cpk');
+    const n5pctEl = $('#n5pct');
+    const summary = $('#summary');
+    const stopTriesEl = $('#stopTries');
+    const stableAtEl = $('#stableAt');
+
+    const historyList = $('#historyList');
+    const copyHistoryBtn = $('#copyHistoryBtn');
+    const clearHistoryBtn = $('#clearHistoryBtn');
+
+    // Canvases
+    const attrCanvas = $('#attrChart');
+    const gaussCanvas = $('#gaussChart');
+
+    // Historique
+    const HISTORY_KEY = 'mesure:history:v1'; // stocke un tableau de [stop, n]
+    function loadHistory() {
+      return store.get(HISTORY_KEY, []); // tableau de paires [stop, n]
+    }
+    function saveRun(stop, n) {
+      const h = loadHistory();
+      h.push([Number(stop), Number(n || 0)]); // N=0 si jamais atteint
+      if (h.length > 5000) h.splice(0, h.length - 5000);
+      store.set(HISTORY_KEY, h);
+      renderHistory();
+    }
+    function clearHistory() {
+      store.set(HISTORY_KEY, []);
+      renderHistory();
+    }
+    function renderHistory() {
+      const h = loadHistory();
+      copyHistoryBtn.disabled = h.length === 0;
+      if (h.length === 0) {
+        historyList.innerHTML = '';
+        return;
+      }
+      // Afficher les 20 plus récents (le plus récent en premier)
+      const last = h.slice(-20).reverse();
+      historyList.innerHTML = last.map(([stop, n]) => `<li>${stop};${n}</li>`).join('');
+    }
+    function copyHistoryToClipboard() {
+      const h = loadHistory();
+      const text = h.map(([stop, n]) => `${stop};${n}`).join('\n');
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text)
+          .then(() => setStatus('Historique copié dans le presse-papiers.', 'ok'))
+          .catch(() => fallbackCopy(text));
+      } else {
+        fallbackCopy(text);
+      }
+      function fallbackCopy(t) {
+        const ta = document.createElement('textarea');
+        ta.value = t;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          setStatus('Historique copié dans le presse-papiers.', 'ok');
+        } catch {
+          setStatus('Impossible de copier (droits du navigateur).', 'warn');
+        } finally {
+          document.body.removeChild(ta);
+        }
+      }
+    }
+
+    // État
+    let sequence = [];       // ordre aléatoire des mesures
+    let revealed = new Set();
+    let tries = 0;
+    let over = false;
+    let showNC = false;
+
+    // “N” figé quand %NC > 5% et au moins 4 tirages
+    let freezeNAt = null;
+
+    // Dernier %NC estimé (pour couleur fond gaussienne)
+    let lastPEstPercent = null;
+
+    function setStatus(text, kind='info') {
+      statusEl.textContent = text;
+      statusEl.style.background = kind==='ok' ? 'rgba(34,197,94,.18)' :
+                                  kind==='err' ? 'rgba(248,113,113,.18)' :
+                                  kind==='warn'? 'rgba(245,158,11,.18)' :
+                                  'rgba(96,165,250,.18)';
+      statusEl.style.color = kind==='ok' ? 'var(--ok)' :
+                             kind==='err' ? 'var(--err)' :
+                             kind==='warn'? 'var(--warn)': '#93c5fd';
+    }
+
+    function buildBoard() {
+      board.innerHTML = '';
+      for (let i = 0; i < 100; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tile';
+        btn.setAttribute('role', 'gridcell');
+        btn.setAttribute('aria-label', 'Tuile ' + (i + 1));
+        btn.dataset.idx = i;
+        btn.textContent = ''; // masqué
+        board.appendChild(btn);
+      }
+    }
+
+    function tagNCTiles() {
+      $$('.tile', board).forEach(btn => {
+        const idx = Number(btn.dataset.idx);
+        const v = sequence[idx];
+        btn.classList.toggle('has-nc', v > USL);
+      });
+    }
+
+    function updatePeek() {
+      board.classList.toggle('show-nc', showNC);
+      peekBtn.textContent = showNC ? 'Masquer > 2' : 'Afficher > 2';
+    }
+
+    function start() {
+      sequence = shuffle(MEASURES);
+      revealed.clear();
+      tries = 0;
+      over = false;
+      showNC = false;
+      freezeNAt = null;
+      lastPEstPercent = null;
+
+      triesEl.textContent = '0';
+      pctNCEl.textContent = '—';
+      pctNCEl.style.color = ''; // reset couleur
+      cpkEl.textContent = '—';
+      n5pctEl.textContent = '0';
+      summary.style.display = 'none';
+
+      setStatus('Simulation en cours: cliquez une tuile…');
+      buildBoard();
+      tagNCTiles();
+      updatePeek();
+
+      // Init charts vides
+      updateCharts();
+
+      startBtn.disabled = true;
+      peekBtn.disabled = false;
+    }
+
+    function reset() {
+      startBtn.disabled = false;
+      start();
+    }
+
+    function getRevealedValues() {
+      return Array.from(revealed).sort((a,b)=>a-b).map(i => sequence[i]);
+    }
+
+    function updateLiveStats() {
+      const vals = getRevealedValues();
+      const cpk = cpkFrom(vals, LSL, USL);
+      const pEst = estimatedNCPercentFromCpk(cpk);
+      lastPEstPercent = pEst;
+
+      triesEl.textContent = String(tries);
+      cpkEl.textContent = (cpk == null || !isFinite(cpk)) ? '—' : cpk.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+      pctNCEl.textContent = (pEst == null) ? '—' : pEst.toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' %';
+
+      // Couleur rouge si > 5%
+      if (pEst != null && pEst > THRESHOLD * 100) {
+        pctNCEl.style.color = 'var(--err)';
+      } else {
+        pctNCEl.style.color = '';
+      }
+
+      // Figer “N” quand %NC > 5% ET tries > 2 (à partir du 3e tirage)
+      if (freezeNAt == null && pEst != null && pEst > THRESHOLD * 100 && tries > 2) {
+        freezeNAt = tries;
+      }
+      const nToShow = (freezeNAt != null) ? freezeNAt : tries;
+      n5pctEl.textContent = String(nToShow);
+
+      // MàJ graphiques
+      updateCharts();
+    }
+
+    function revealTile(idx, btn) {
+      if (revealed.has(idx) || over) return;
+      revealed.add(idx);
+      tries += 1;
+
+      const v = sequence[idx];
+      const isNC = v > USL;
+      btn.textContent = fmt(v, 2);
+      btn.classList.add(isNC ? 'nc' : 'safe');
+      btn.disabled = true;
+
+      updateLiveStats();
+
+      if (isNC) {
+        over = true;
+        // Désactiver toutes les autres tuiles
+        $$('.tile', board).forEach(b => b.disabled = true);
+        setStatus(`Arrêt: mesure ${fmt(v)} > ${USL} trouvée au tirage ${tries}.`, 'ok');
+        // Résumé
+        stopTriesEl.textContent = String(tries);
+        stableAtEl.textContent = (freezeNAt != null) ? String(freezeNAt) : 'Jamais (≤ 5%)';
+        summary.style.display = 'flex';
+        startBtn.disabled = false;
+
+        // Sauvegarde historique: N=0 si jamais atteint
+        const nToSave = (freezeNAt != null) ? freezeNAt : 0;
+        saveRun(tries, nToSave);
+
+        // MàJ graphiques (fond attributif passe au rouge)
+        updateCharts();
+      }
+    }
+
+    // HiDPI canvas helper
+    function getCtx(canvas, cssW=360, cssH=220) {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return ctx;
+    }
+
+    // Histogram bins
+    function makeBins(values, start=0, binW=BIN_WIDTH, extra=0.45) {
+      const vmax = values.length ? Math.max(...values) : 0;
+      const end = Math.max(USL + extra, vmax + binW);
+      const nBins = Math.max(1, Math.ceil((end - start) / binW));
+      const edges = Array.from({length: nBins+1}, (_,i)=> start + i*binW);
+      const counts = Array(nBins).fill(0);
+      for (const v of values) {
+        const idx = Math.min(nBins-1, Math.max(0, Math.floor((v - start) / binW)));
+        counts[idx] += 1;
+      }
+      return {edges, counts, start, end, binW};
+    }
+
+    // Axes + guides
+    function drawAxes(ctx, x, y, w, h) {
+      ctx.strokeStyle = 'rgba(148,163,184,.4)'; // slate-300-ish
+      ctx.lineWidth = 1;
+      // Axe X
+      ctx.beginPath();
+      ctx.moveTo(x, y+h);
+      ctx.lineTo(x+w, y+h);
+      ctx.stroke();
+    }
+
+    function drawSpecLines(ctx, scaleX, plotX, plotW, plotY, plotH) {
+      // Lignes TI et TS
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.4)';
+      ctx.setLineDash([4,3]);
+      ctx.lineWidth = 1;
+      // TI
+      const xLSL = scaleX(LSL);
+      if (xLSL >= plotX && xLSL <= plotX + plotW) {
+        ctx.beginPath();
+        ctx.moveTo(xLSL, plotY);
+        ctx.lineTo(xLSL, plotY + plotH);
+        ctx.stroke();
+      }
+      // TS
+      const xUSL = scaleX(USL);
+      if (xUSL >= plotX && xUSL <= plotX + plotW) {
+        ctx.beginPath();
+        ctx.moveTo(xUSL, plotY);
+        ctx.lineTo(xUSL, plotY + plotH);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Dessin: Histogramme attributif
+    function drawAttrHistogram(values) {
+      const ctx = getCtx(attrCanvas);
+      const W = parseInt(getComputedStyle(attrCanvas).width,10) || 360;
+      const H = parseInt(getComputedStyle(attrCanvas).height,10) || 220;
+
+      // Plot area
+      const m = {l: 36, r: 8, t: 8, b: 24};
+      const plotX = m.l, plotY = m.t, plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+
+      // Fond attributif: vert si toutes les mesures sont dans [0;2], sinon rouge
+      const anyOut = values.some(v => v < LSL || v > USL);
+      ctx.fillStyle = anyOut ? 'rgba(248,113,113,.10)' : 'rgba(34,197,94,.10)'; // rouge/vert clair
+      ctx.fillRect(0, 0, W, H);
+
+      // Bins et échelles
+      const {edges, counts, start, end} = makeBins(values);
+      const maxCount = Math.max(1, ...counts, 1);
+
+      const scaleX = (x)=> plotX + (x - start) / (end - start) * plotW;
+      const scaleY = (c)=> plotY + plotH - (c / maxCount) * plotH;
+
+      // Axes
+      drawAxes(ctx, plotX, plotY, plotW, plotH);
+      drawSpecLines(ctx, scaleX, plotX, plotW, plotY, plotH);
+
+      // Barres
+      ctx.fillStyle = 'rgba(147,197,253,.9)'; // bleu
+      for (let i = 0; i < counts.length; i++) {
+        const x0 = scaleX(edges[i]);
+        const x1 = scaleX(edges[i+1]);
+        const bw = Math.max(1, x1 - x0 - 1);
+        const y0 = scaleY(counts[i]);
+        ctx.fillRect(x0 + 0.5, y0, bw, plotY + plotH - y0);
+      }
+
+      // Graduations légères (quelques repères)
+      ctx.fillStyle = 'rgba(148,163,184,.7)';
+      ctx.font = '12px system-ui, Segoe UI, Roboto, Arial';
+      const ticks = [];
+      const step = 0.3;
+      for (let x = LSL; x <= Math.ceil(end / step) * step; x += step) ticks.push(Number(x.toFixed(2)));
+      for (const tx of ticks) {
+        const xx = scaleX(tx);
+        if (xx < plotX || xx > plotX + plotW) continue;
+        ctx.fillText(tx.toFixed(2), xx - 8, plotY + plotH + 16);
+      }
+    }
+
+    // Dessin: Histogramme + courbe gaussienne estimée
+    function drawGaussian(values) {
+      const ctx = getCtx(gaussCanvas);
+      const W = parseInt(getComputedStyle(gaussCanvas).width,10) || 360;
+      const H = parseInt(getComputedStyle(gaussCanvas).height,10) || 220;
+
+      // Plot area
+      const m = {l: 36, r: 8, t: 8, b: 24};
+      const plotX = m.l, plotY = m.t, plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+
+      // Fond en fonction du % NC estimé
+      const bad = (lastPEstPercent != null && lastPEstPercent > THRESHOLD * 100);
+      ctx.fillStyle = bad ? 'rgba(248,113,113,.10)' : 'rgba(34,197,94,.10)';
+      ctx.fillRect(0, 0, W, H);
+
+      const n = values.length;
+      // Bins et échelles
+      const {edges, counts, start, end} = makeBins(values);
+      const maxCount = Math.max(1, ...counts, 1);
+
+      const scaleX = (x)=> plotX + (x - start) / (end - start) * plotW;
+      const scaleYCount = (c)=> plotY + plotH - (c / maxCount) * plotH;
+
+      // Axes et limites
+      drawAxes(ctx, plotX, plotY, plotW, plotH);
+      drawSpecLines(ctx, scaleX, plotX, plotW, plotY, plotH);
+
+      // Histogramme (arrière-plan)
+      ctx.fillStyle = 'rgba(96,165,250,.35)';
+      for (let i = 0; i < counts.length; i++) {
+        const x0 = scaleX(edges[i]);
+        const x1 = scaleX(edges[i+1]);
+        const bw = Math.max(1, x1 - x0 - 1);
+        const y0 = scaleYCount(counts[i]);
+        ctx.fillRect(x0 + 0.5, y0, bw, plotY + plotH - y0);
+      }
+
+      // Courbe gaussienne estimée si possible
+      if (n >= 2) {
+        const mean = values.reduce((s,v)=>s+v,0) / n;
+        const varSample = values.reduce((s,v)=>s + (v-mean)*(v-mean), 0) / (n-1);
+        const sd = Math.sqrt(varSample);
+
+        if (isFinite(sd) && sd > 0) {
+          // Normalisation de la densité: on ajuste la hauteur pour cadrer visuellement avec l'histogramme
+          // Approximation: échelle telle que l'aire histogramme ~ aire densité * nb * binW
+          // On ramène la densité en "hauteur de compte" via facteur A
+          const A = (maxCount > 0) ? (maxCount * 0.9) : 1;
+
+          // Tracé lissé
+          ctx.strokeStyle = 'rgba(147,197,253,1)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          const steps = 240;
+          for (let i = 0; i <= steps; i++) {
+            const x = start + (i / steps) * (end - start);
+            const pdf = normalPdf(x, mean, sd); // densité
+            // Convertir en "counts" relatifs pour l'échelle Y: counts ~= n * pdf * binW
+            const yCount = n * pdf * BIN_WIDTH;
+            const y = plotY + plotH - (Math.min(1, yCount / Math.max(1, maxCount)) * plotH) * (A / Math.max(1, maxCount));
+            const xx = scaleX(x);
+            if (i === 0) ctx.moveTo(xx, y);
+            else ctx.lineTo(xx, y);
+          }
+          ctx.stroke();
+        } else {
+          // Message si sd = 0
+          ctx.fillStyle = 'rgba(148,163,184,.9)';
+          ctx.font = '12px system-ui, Segoe UI, Roboto, Arial';
+          ctx.fillText('Écart-type nul: courbe indisponible', plotX + 8, plotY + 16);
+        }
+      } else {
+        // Message si pas assez de points
+        ctx.fillStyle = 'rgba(148,163,184,.9)';
+        ctx.font = '12px system-ui, Segoe UI, Roboto, Arial';
+        ctx.fillText('Révélez au moins 2 mesures pour estimer la gaussienne', plotX + 8, plotY + 16);
+      }
+
+      // Ticks X
+      ctx.fillStyle = 'rgba(148,163,184,.7)';
+      ctx.font = '12px system-ui, Segoe UI, Roboto, Arial';
+      const ticks = [];
+      const step = 0.3;
+      for (let x = LSL; x <= Math.ceil(end / step) * step; x += step) ticks.push(Number(x.toFixed(2)));
+      for (const tx of ticks) {
+        const xx = scaleX(tx);
+        if (xx < plotX || xx > plotX + plotW) continue;
+        ctx.fillText(tx.toFixed(2), xx - 8, plotY + plotH + 16);
+      }
+    }
+
+    function updateCharts() {
+      const vals = getRevealedValues();
+      drawAttrHistogram(vals);
+      drawGaussian(vals);
+    }
+
+    // Événements
+    board.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tile');
+      if (!btn) return;
+      const idx = Number(btn.dataset.idx);
+      revealTile(idx, btn);
+    });
+    startBtn.addEventListener('click', start);
+    resetBtn.addEventListener('click', reset);
+    peekBtn.addEventListener('click', () => { showNC = !showNC; updatePeek(); });
+    copyHistoryBtn.addEventListener('click', copyHistoryToClipboard);
+    clearHistoryBtn.addEventListener('click', () => {
+      if (confirm('Effacer l’historique des parties ?')) clearHistory();
+    });
+
+    // Initialisation
+    renderHistory();
+    buildBoard();
+    setStatus('Prêt');
+    updateCharts();
+
+    // Optionnel: Redessiner les canvases si changement de DPR (zoom)
+    window.addEventListener('resize', () => updateCharts());
+  </script>
+</body>
+</html>

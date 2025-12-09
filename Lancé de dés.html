@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dés — 10 lancers (1 dé à 6 faces) + historique</title>
+  <meta name="description" content="Jeu de lancé de dés: 1 dé à 6 faces. 10 lancers max, courbe de répartition, historique copiable et effaçable." />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --ok:#22c55e; --err:#f87171;
+      --panel:#141a2f; --border:#263046;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:1rem}
+    a.back, a.back:visited{color:#fff;text-decoration:none}
+    a.back:hover, a.back:focus-visible{color:#e5e7eb;outline:2px solid #e5e7eb;outline-offset:2px}
+    h1{font-size:1.4rem;margin:.5rem 0 1rem}
+
+    .grid{display:grid;gap:1rem;grid-template-columns: 1.1fr .9fr}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.75rem;padding:1rem}
+    .muted{color:var(--muted)}
+
+    /* Boutons en haut */
+    .actions-top{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;justify-content:flex-start}
+    .btn{padding:.7rem .9rem;border-radius:.5rem;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer;font-weight:700}
+    .btn.primary{background:var(--accent);color:#0b1020;border-color:var(--accent)}
+    .btn.alert{border-color:var(--err);color:var(--err)}
+    .btn:hover,.btn:focus-visible{filter:brightness(1.08)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+
+    .stats{display:flex;gap:1rem;flex-wrap:wrap;margin:.75rem 0}
+    .chip{background:rgba(96,165,250,.16);padding:.4rem .6rem;border-radius:.5rem;border:1px solid var(--border);min-width:12ch}
+    .bar{height:10px;background:#0f172a;border:1px solid #334155;border-radius:999px;overflow:hidden}
+    .bar > span{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#60a5fa);width:0%}
+
+    /* Zone visuelle (dé) */
+    .stage{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,rgba(255,255,255,.03),transparent);border:1px solid var(--border);border-radius:.75rem;min-height:360px}
+    .dice{
+      width:180px;height:180px;border-radius:1rem;background:#1f2a44;border:1px solid #334155;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 8px 20px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.03);
+      position:relative; transform:rotate(0deg); transition:transform .18s ease;
+    }
+    .dice.spin{animation:shake .6s ease-in-out}
+    @keyframes shake{
+      0%{ transform:translate(0,0) rotate(0deg) }
+      20%{ transform:translate(-6px,-2px) rotate(-6deg) }
+      40%{ transform:translate(7px,3px) rotate(8deg) }
+      60%{ transform:translate(-4px,4px) rotate(-5deg) }
+      80%{ transform:translate(5px,-3px) rotate(6deg) }
+      100%{ transform:translate(0,0) rotate(0deg) }
+    }
+    .dice-value{font:800 72px/1.1 system-ui,Segoe UI,Roboto; color:#e5e7eb; text-shadow:0 2px 10px rgba(0,0,0,.4)}
+    .dice-sub{position:absolute;bottom:10px;left:0;right:0;text-align:center;font:600 13px/1 system-ui;color:#94a3b8}
+
+    .under-visual{margin-top:.75rem}
+
+    /* Chart (courbe sans gaussienne) */
+    .chart-wrap .chart-title{margin:0 0 .5rem;font-weight:800}
+    .chart-legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.5rem 0;color:var(--muted);font-size:.95rem}
+    .legend-box{display:inline-flex;align-items:center;gap:.35rem}
+    .lb{width:14px;height:14px;border-radius:3px;display:inline-block}
+    .lb.counts{background:linear-gradient(180deg,#60a5fa,#2563eb)}
+    .chart-svg{width:100%;height:auto;display:block}
+    .chart-grid{stroke:#334155;stroke-width:1;opacity:.4}
+    .chart-text{fill:#cbd5e1;font:600 12px/1 system-ui,Segoe UI,Roboto}
+    .counts-line{fill:none;stroke:#60a5fa;stroke-width:2.5}
+    .counts-dot{fill:#93c5fd}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a class="back" href="index.html">← Retour à l’accueil</a></p>
+    <h1>Jeu de dés — 10 lancers (1 dé à 6 faces)</h1>
+
+    <!-- Boutons en haut -->
+    <div class="panel">
+      <div class="actions-top">
+        <button id="roll" class="btn primary">Lancer</button>
+        <button id="copyHistory" class="btn">Copier l’historique</button>
+        <button id="clearHistory" class="btn alert">Effacer l’historique</button>
+      </div>
+      <p id="lastMsg" class="muted" style="margin:.5rem 0 0" aria-live="polite"></p>
+    </div>
+
+    <div class="grid">
+      <!-- Visuel + infos -->
+      <div class="panel">
+        <div class="stage">
+          <div id="dice" class="dice" aria-live="polite" aria-label="Dé (1 à 6)">
+            <div id="diceValue" class="dice-value">—</div>
+            <div id="diceSub" class="dice-sub">Prêt — 1 dé / 6 faces</div>
+          </div>
+        </div>
+
+        <!-- Infos sous le visuel -->
+        <div class="under-visual">
+          <div class="stats">
+            <div class="chip">Lancers: <strong id="rollCount">0</strong> / <strong id="rollTotal">10</strong></div>
+            <div class="chip">Moyenne: <strong id="meanLabel">—</strong></div>
+            <div class="chip">Dernier: <strong id="lastRoll">—</strong></div>
+          </div>
+          <div class="bar" title="Progression (10 lancers)">
+            <span id="bar"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Graphique -->
+      <div class="panel chart-wrap">
+        <h2 class="chart-title">Répartition des résultats</h2>
+        <div class="chart-legend">
+          <span class="legend-box"><span class="lb counts"></span>Comptes par valeur (courbe)</span>
+        </div>
+        <svg id="chart" class="chart-svg" viewBox="0 0 760 340" role="img" aria-label="Courbe des comptes"></svg>
+        <div id="chartStats" class="stat-line muted"></div>
+        <p id="chartHint" class="muted" style="margin-top:.25rem;"></p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utils
+    const $ = (s, ctx=document)=>ctx.querySelector(s);
+    const store = {
+      get(k, f=null){ try{ return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } },
+      set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+    };
+
+    // Constantes: 1 dé (6 faces), 10 lancers max
+    const SIDES = 6;
+    const THROWS_MAX = 10;
+    const HISTORY_KEY = 'des:lancers:oneD6:v1'; // [ {v, ts} ... ]
+
+    // Réfs UI
+    const rollBtn = $('#roll');
+    const copyHistoryBtn = $('#copyHistory');
+    const clearHistoryBtn = $('#clearHistory');
+
+    const dice = $('#dice');
+    const diceValue = $('#diceValue');
+    const diceSub = $('#diceSub');
+
+    const rollCountEl = $('#rollCount');
+    const rollTotalEl = $('#rollTotal');
+    const meanLabel = $('#meanLabel');
+    const lastRollEl = $('#lastRoll');
+    const barSpan = $('#bar');
+    const lastMsg = $('#lastMsg');
+
+    const chart = $('#chart');
+    const chartStats = $('#chartStats');
+    const chartHint = $('#chartHint');
+
+    rollTotalEl.textContent = THROWS_MAX;
+
+    // Historique simple (jusqu'à 10 lancers)
+    function loadHistory(){ return store.get(HISTORY_KEY, []); }
+    function saveRoll(v){
+      const hist = loadHistory();
+      if (hist.length >= THROWS_MAX) return false;
+      hist.push({ v, ts: Date.now() });
+      store.set(HISTORY_KEY, hist);
+      return true;
+    }
+    function clearHistory(){
+      store.set(HISTORY_KEY, []);
+      diceValue.textContent = '—';
+      diceSub.textContent = 'Prêt — 1 dé / 6 faces';
+      lastRollEl.textContent = '—';
+      lastMsg.textContent = 'Historique effacé.';
+      rolling = false; // << modification — évite blocage après clear
+      updateUI();
+    }
+
+    // Tirage
+    function randInt1S(s){ return (Math.random()*s | 0) + 1; }
+    function rollValue(){ return randInt1S(SIDES); } // 1..6
+
+    // Animation
+    let rolling = false; // << modif
+    async function animateRoll(finalValue){
+      rolling = true;                       // << modification
+      updateUI();                           // << maj bouton !
+      dice.classList.add('spin');
+      const start = performance.now();
+      const dur = 600;
+      function frame(t){
+        const el = t - start;
+        const speed = Math.min(260, 100 + el * 0.8);
+        if (el < dur){
+          if (el % speed < 16){
+            diceValue.textContent = rollValue(); // valeurs provisoires 1..6
+            diceSub.textContent = '...';
+          }
+          requestAnimationFrame(frame);
+        } else {
+          diceValue.textContent = finalValue;
+          diceSub.textContent = '1 dé / 6 faces';
+          dice.classList.remove('spin');
+          rolling = false;                   // << modification
+          updateUI();                        // << maj bouton !
+        }
+      }
+      requestAnimationFrame(frame);
+      await new Promise(res=>setTimeout(res, dur+10));
+    }
+
+    async function doRoll(){
+      if (rolling) return; // << évite double
+      const hist = loadHistory();
+      if (hist.length >= THROWS_MAX){
+        lastMsg.textContent = '10/10 lancers atteints. Copiez ou effacez l’historique.';
+        updateButtons();
+        return;
+      }
+      // Le bouton est bloqué dès animateRoll()
+      const v = rollValue();
+      await animateRoll(v);
+      saveRoll(v);
+      lastRollEl.textContent = v;
+      lastMsg.textContent = `Lancer #${loadHistory().length}: ${v}`;
+      updateUI();
+    }
+
+    // Stats
+    function mean(arr){ return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0; }
+
+    // Graphe (courbe des comptes 1..6, pas de gaussienne)
+    function renderChart(){
+      const values = loadHistory().map(h=>h.v);
+      chart.innerHTML = '';
+
+      const W = 760, H = 340, mg = {l:55, r:20, t:20, b:40};
+      const PW = W - mg.l - mg.r, PH = H - mg.t - mg.b;
+
+      // Cadre
+      chart.appendChild(el('rect', { x:mg.l, y:mg.t, width:PW, height:PH, fill:'none', stroke:'rgba(148,163,184,.4)' }));
+
+      if (values.length === 0){
+        chartHint.textContent = 'Clique sur “Lancer” pour alimenter la courbe. Maximum 10 lancers.';
+        chartStats.textContent = '';
+        return;
+      } else {
+        chartHint.textContent = '';
+      }
+
+      // Domaine X fixe 1..6
+      const xMin = 1, xMax = 6;
+      const counts = binCounts(values, xMin, xMax);
+      const yMax = Math.max(1, ...counts);
+
+      const x = v => mg.l + ((v - xMin) / (xMax - xMin)) * PW;
+      const y = c => mg.t + PH - (c / yMax) * (PH * 0.92);
+
+      // Grille Y + labels
+      const yTicks = 5;
+      for (let i=0;i<=yTicks;i++){
+        const frac = i / yTicks;
+        const gy = mg.t + PH - frac * PH;
+        chart.appendChild(el('line', { x1:mg.l, y1:gy, x2:mg.l + PW, y2:gy, class:'chart-grid' }));
+        const lbl = el('text', { x:mg.l - 8, y:gy + 4, class:'chart-text', 'text-anchor':'end' });
+        lbl.textContent = Math.round(frac * yMax);
+        chart.appendChild(lbl);
+      }
+
+      // Graduation X (1..6)
+      for (let v = xMin; v <= xMax; v++){
+        const gx = x(v);
+        chart.appendChild(el('line', { x1:gx, y1:mg.t + PH, x2:gx, y2:mg.t + PH + 6, stroke:'#94a3b8' }));
+        const lbl = el('text', { x:gx, y:mg.t + PH + 20, class:'chart-text', 'text-anchor':'middle' });
+        lbl.textContent = String(v);
+        chart.appendChild(lbl);
+      }
+
+      // Courbe (points entiers)
+      const pts = [];
+      for (let v = xMin; v <= xMax; v++){
+        const c = counts[v - xMin];
+        const px = x(v);
+        const py = y(c);
+        pts.push([px, py]);
+      }
+      if (pts.length >= 2){
+        const d = 'M ' + pts.map(p => `${p[0]} ${p[1]}`).join(' L ');
+        chart.appendChild(el('path', { d, class:'counts-line' }));
+      }
+      for (const [px,py] of pts){
+        chart.appendChild(el('circle', { cx:px, cy:py, r:3.2, class:'counts-dot' }));
+      }
+
+      // Axes labels
+      const xl = el('text', { x:mg.l + PW/2, y:H-8, class:'chart-text', 'text-anchor':'middle' });
+      xl.textContent = 'Valeur (1–6)';
+      chart.appendChild(xl);
+      const yl = el('text', { x:14, y:mg.t + PH/2, class:'chart-text', transform:`rotate(-90 14 ${mg.t + PH/2})`, 'text-anchor':'middle' });
+      yl.textContent = 'Comptes';
+      chart.appendChild(yl);
+
+      // Stats ligne
+      const avg = mean(values);
+      chartStats.textContent = `n = ${values.length} • moyenne = ${avg.toFixed(3)}`;
+    }
+
+    function binCounts(values, xMin, xMax){
+      const size = xMax - xMin + 1;
+      const counts = new Array(size).fill(0);
+      for (const v of values){
+        if (v >= xMin && v <= xMax){
+          const idx = v - xMin;
+          counts[idx]++;
+        }
+      }
+      return counts;
+    }
+
+    // UI helpers
+    function updateUI(){
+      const hist = loadHistory();
+      const vals = hist.map(h=>h.v);
+      rollCountEl.textContent = vals.length;
+      barSpan.style.width = `${(vals.length/THROWS_MAX*100).toFixed(1)}%`;
+      meanLabel.textContent = vals.length ? mean(vals).toFixed(3) : '—';
+      copyHistoryBtn.disabled = vals.length === 0;
+      rollBtn.disabled = vals.length >= THROWS_MAX || rolling; // << modification
+      renderChart();
+    }
+    function updateButtons(){ updateUI(); }
+
+    // Copier historique
+    function fallbackCopy(text, okMsg, failMsg){
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+      lastMsg.textContent = ok ? okMsg : failMsg;
+    }
+    function copyHistory(){
+      const vals = loadHistory().map(h=>h.v);
+      if (vals.length === 0){
+        lastMsg.textContent = 'Historique vide.';
+        return;
+      }
+      const text = vals.join('\n');
+      const ok = `${vals.length} valeur${vals.length>1?'s':''} copiée${vals.length>1?'s':''} (historique).`;
+      const fail = 'Échec de la copie (historique).';
+      if (navigator.clipboard?.writeText){
+        navigator.clipboard.writeText(text).then(()=>{ lastMsg.textContent = ok; }).catch(()=> fallbackCopy(text, ok, fail));
+      } else {
+        fallbackCopy(text, ok, fail);
+      }
+    }
+
+    // SVG helper
+    function el(name, attrs={}){
+      const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const k in attrs){ e.setAttribute(k, attrs[k]); }
+      return e;
+    }
+
+    // Événements
+    rollBtn.addEventListener('click', doRoll);
+    copyHistoryBtn.addEventListener('click', copyHistory);
+    clearHistoryBtn.addEventListener('click', ()=>{
+      if (confirm('Effacer l’historique des 10 lancers ?')) clearHistory();
+    });
+
+    // Barre espace = lancer
+    document.addEventListener('keydown', (e)=>{
+      if (e.code === 'Space'){
+        e.preventDefault();
+        if (!rollBtn.disabled) doRoll();
+      }
+    });
+
+    // Init
+    updateUI();
+  </script>
+</body>
+</html>
