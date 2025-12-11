@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Courbe de Gauss — Mesures et tolérances</title>
+  <meta name="theme-color" content="#60a5fa" />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --panel:#141a2f; --border:#263046;
+      --grid:#334155;
+      --tol:#ef4444;     /* rouge */
+      --target:#22c55e;  /* vert */
+      --mean:#b45309;    /* brun */
+    }
+    html,body{
+      margin:0;background:var(--bg);color:var(--fg);
+      font:16px/1.55 system-ui,Segoe UI,Roboto,Arial
+    }
+    a.back-link, a.back-link:visited { color:#fff; text-decoration:none; }
+    a.back-link:hover, a.back-link:focus-visible { color:#e5e7eb; outline:2px solid #e5e7eb; outline-offset:2px; }
+    .wrap{max-width:1200px;margin:0 auto;padding:1rem 1.2rem 2rem}
+    h1{margin-top:0;margin-bottom:.6rem;font-size:1.45rem}
+
+    .panel{
+      background:var(--panel);border:1px solid var(--border);
+      border-radius:.8rem;padding:1rem
+    }
+    .chart-wrap{padding:0;margin-top:.7rem}
+    .chart-svg{width:100%;height:auto;display:block}
+    .chart-grid{stroke:var(--grid);stroke-width:1;opacity:.4}
+    .chart-text{fill:#cbd5e1;font:600 13px/1 system-ui,Segoe UI,Roboto}
+    .axis-label{fill:#cbd5e1;font-weight:800}
+
+    .hint{color:var(--muted);text-align:center;margin:.5rem 0 0}
+
+    .controls{
+      display:flex;flex-wrap:wrap;gap:.8rem;margin-top:1rem;
+      align-items:flex-end
+    }
+    .ctrl-block{
+      display:flex;flex-direction:column;gap:.3rem;
+      color:var(--muted);font-size:.9rem
+    }
+    .ctrl-block label{font-size:.88rem}
+    .ctrl-block input{
+      padding:.35rem .5rem;border-radius:.45rem;
+      border:1px solid var(--border);
+      background:#020617;color:var(--fg);min-width:0
+    }
+    .ctrl-block input[type=number]{width:5rem}
+    .ctrl-block input.measure-input{width:4rem}
+
+    .btn{
+      padding:.45rem .9rem;border-radius:.55rem;
+      border:2px solid var(--accent);
+      background:transparent;color:var(--accent);
+      font-weight:700;cursor:pointer;user-select:none;
+      transition:.12s ease;font-size:.9rem;
+    }
+    .btn:hover{background:var(--accent);color:#0b1020;transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+
+    .btn[disabled]{
+      opacity:.4;cursor:not-allowed;transform:none;
+      background:transparent;color:var(--accent);
+    }
+
+    .legend{display:flex;flex-wrap:wrap;gap:.6rem;font-size:.85rem;color:var(--muted);margin-top:.5rem}
+    .legend-item{display:flex;align-items:center;gap:.3rem}
+    .legend-line{
+      width:20px;height:0;border-top:2px solid #fff;
+    }
+    .legend-tol{border-color:var(--tol)}
+    .legend-target{border-style:dashed;border-color:var(--target)}
+    .legend-mean{border-style:dashed;border-color:var(--mean)}
+    .legend-gauss{border-color:var(--accent)}
+
+    .dot-measure{
+      fill:#38bdf8;stroke:#0f172a;stroke-width:2;cursor:pointer;
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      *{transition:none !important;scroll-behavior:auto !important}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+     <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
+    <h1>Construire une courbe de Gauss à partir de 5 mesures</h1>
+
+    <!-- CONTROLES -->
+    <div class="controls">
+      <div class="ctrl-block">
+        <label for="tolMin">Tolérance min (≥ 0)</label>
+        <input id="tolMin" type="number" step="0.01" min="0" value="">
+      </div>
+      <div class="ctrl-block">
+        <label for="tolMax">Tolérance max (&gt; 0)</label>
+        <input id="tolMax" type="number" step="0.01" min="0" value="">
+      </div>
+      <div class="ctrl-block">
+        <label for="target">Cible (entre min et max)</label>
+        <input id="target" type="number" step="0.01" min="0" value="">
+      </div>
+
+      <div class="ctrl-block">
+        <label>&nbsp;</label>
+        <button id="validateTol" class="btn" type="button">Valider tolérances / cible</button>
+      </div>
+
+      <div class="ctrl-block">
+        <label>Mesures (une par une, ≥ 0)</label>
+        <div style="display:flex;gap:.25rem;flex-wrap:wrap">
+          <input class="measure-input" type="number" step="0.01" min="0" value="" disabled>
+          <input class="measure-input" type="number" step="0.01" min="0" value="" disabled>
+          <input class="measure-input" type="number" step="0.01" min="0" value="" disabled>
+          <input class="measure-input" type="number" step="0.01" min="0" value="" disabled>
+          <input class="measure-input" type="number" step="0.01" min="0" value="" disabled>
+        </div>
+      </div>
+    </div>
+
+    <section class="panel chart-wrap">
+      <svg id="gaussChart" class="chart-svg"
+           viewBox="0 0 1000 520"
+           role="img"
+           aria-label="Courbe de Gauss avec tolérances, cible et mesures"></svg>
+      <p id="hintGauss" class="hint">
+        1) Saisissez tolérance min / max et la cible, puis cliquez sur “Valider”.<br>
+        2) Ensuite, saisissez les 5 mesures (ou déplacez les points bleus) pour construire la courbe.
+      </p>
+    </section>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-line legend-gauss"></span>Courbe de Gauss</div>
+      <div class="legend-item"><span class="legend-line legend-tol"></span>Tolérances min / max</div>
+      <div class="legend-item"><span class="legend-line legend-target"></span>Cible</div>
+      <div class="legend-item"><span class="legend-line legend-mean"></span>Moyenne des mesures</div>
+      <div class="legend-item" style="color:#38bdf8">● Mesures manipulables (sur l’axe des abscisses, avec empilement)</div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- UTILITAIRES ----------
+    const svg = document.querySelector('#gaussChart');
+    const hint = document.querySelector('#hintGauss');
+    const tolMinInput = document.querySelector('#tolMin');
+    const tolMaxInput = document.querySelector('#tolMax');
+    const targetInput = document.querySelector('#target');
+    const measureInputs = Array.from(document.querySelectorAll('.measure-input'));
+    const validateTolBtn = document.querySelector('#validateTol');
+
+    function elSVG(name, attrs={}){
+      const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    }
+
+    const W = 1000, H = 520;
+    const m = { l:70, r:30, t:30, b:40 };
+    const PW = W - m.l - m.r;
+    const PH = H - m.t - m.b;
+
+    // ---------- ÉTAT ----------
+    let measures = new Array(5).fill(null); // valeurs ≥ 0 ou null
+    let tolMin  = null;      // ≥ 0
+    let tolMax  = null;      // > 0
+    let target  = null;      // ≥ 0, et dans [tolMin, tolMax]
+    let graphReady = false;  // vrai après validation tolérances / cible
+
+    function parseNonNegative(v){
+      const x = parseFloat(v);
+      return Number.isFinite(x) && x >= 0 ? x : null;
+    }
+
+    function allMeasuresValid(){
+      return measures.every(v => typeof v === 'number' && v >= 0);
+    }
+
+    function getValidMeasures(){
+      return measures.filter(v => typeof v === 'number' && v >= 0);
+    }
+
+    function getStats(){
+      const vals = getValidMeasures();
+      const n = vals.length;
+      if (n === 0) return { mean:null, sigma:null };
+
+      const mean = vals.reduce((s,v)=>s+v,0) / n;
+      let varSum = 0;
+      for(const x of vals) varSum += (x-mean)**2;
+      let variance = varSum / n;
+      if (variance === 0){
+        variance = (mean || 1) * 1e-4;
+      }
+      const sigma = Math.max(Math.sqrt(variance), 0.001);
+      return { mean, sigma };
+    }
+
+    function normalPDF(x, mean, sigma){
+      const z = (x - mean)/sigma;
+      const coef = 1 / (sigma * Math.sqrt(2*Math.PI));
+      return coef * Math.exp(-0.5 * z*z);
+    }
+
+    // Bornes autorisées pour les mesures : [tolMin - 0.5*plage ; tolMax + 0.5*plage]
+    function getMeasureBounds(){
+      if (tolMin == null || tolMax == null) return { min:0, max:Infinity };
+      const range = tolMax - tolMin;
+      const ext = 0.5 * range;
+      const minAllowed = Math.max(0, tolMin - ext); // mesures restent ≥ 0
+      const maxAllowed = tolMax + ext;
+      return { min:minAllowed, max:maxAllowed };
+    }
+
+    function clampMeasure(v){
+      const { min, max } = getMeasureBounds();
+      if (v == null) return null;
+      return Math.min(max, Math.max(min, v));
+    }
+
+    // ---------- DOMAINE X (peut être négatif pour voir toute la courbe) ----------
+    function computeDomain(){
+      const vals = [];
+      if (tolMin  != null) vals.push(tolMin);
+      if (tolMax  != null) vals.push(tolMax);
+      if (target  != null) vals.push(target);
+      for (const v of getValidMeasures()) vals.push(v);
+
+      const { mean, sigma } = getStats();
+
+      if (mean != null && sigma != null){
+        vals.push(mean - 3*sigma);
+        vals.push(mean + 3*sigma);
+      }
+
+      if (vals.length === 0){
+        return { minX:0, maxX:1 };
+      }
+      let minX = Math.min(...vals);
+      let maxX = Math.max(...vals);
+
+      if (minX === maxX){
+        minX -= 1;
+        maxX += 1;
+      }
+
+      const padding = (maxX - minX) * 0.15;
+      minX = minX - padding;
+      maxX = maxX + padding;
+
+      return { minX, maxX };
+    }
+
+    function makeScales(){
+      const { minX, maxX } = computeDomain();
+      const { mean, sigma } = getStats();
+
+      let maxY = 1;
+      if (mean != null && sigma != null){
+        maxY = normalPDF(mean, mean, sigma);
+      }
+
+      const scaleX = x => m.l + ( (x - minX) / (maxX - minX) ) * PW;
+      const scaleY = y => m.t + PH - (y / maxY) * (PH * 0.9);
+
+      return { minX, maxX, scaleX, scaleY, mean, sigma, maxY };
+    }
+
+    function clusterMeasures(values){
+      const map = new Map();
+      values.forEach((v, i)=>{
+        const key = v.toFixed(4);
+        if (!map.has(key)) map.set(key, { x:v, indexes:[] });
+        map.get(key).indexes.push(i);
+      });
+      return Array.from(map.values());
+    }
+
+    // ---------- RENDU ----------
+    function render(){
+      svg.innerHTML = '';
+
+      if (!graphReady){
+        hint.textContent = 'Saisissez tolérance min / max et cible, puis cliquez sur “Valider tolérances / cible” pour afficher le graphe.';
+        return;
+      }
+
+      const { minX, maxX, scaleX, scaleY, mean, sigma, maxY } = makeScales();
+
+      svg.appendChild(elSVG('rect', {
+        x:m.l, y:m.t, width:PW, height:PH,
+        fill:'none', stroke:'rgba(148,163,184,.32)'
+      }));
+
+      const axisY = m.t + PH;
+      svg.appendChild(elSVG('line',{
+        x1:m.l,y1:axisY,x2:m.l+PW,y2:axisY,
+        stroke:'#475569','stroke-width':'1'
+      }));
+
+      const yTicks = 6;
+      for(let i=0;i<=yTicks;i++){
+        const frac = i / yTicks;
+        const yVal = frac * maxY;
+        const gy = scaleY(yVal);
+        svg.appendChild(elSVG('line',{
+          x1:m.l,y1:gy,x2:m.l+PW,y2:gy, class:'chart-grid'
+        }));
+        const t = elSVG('text',{
+          x:m.l-10, y:gy+4, class:'chart-text', 'text-anchor':'end'
+        });
+        t.textContent = yVal.toFixed(3);
+        svg.appendChild(t);
+      }
+
+      const yl = elSVG('text',{
+        x:22,y:m.t+PH/2,class:'axis-label','text-anchor':'middle',
+        transform:`rotate(-90 22 ${m.t+PH/2})`
+      });
+      yl.textContent = 'Densité (normalisée)';
+      svg.appendChild(yl);
+
+      const baseXTicks = 4;
+      const ticksValues = new Set();
+      for(let i=0;i<=baseXTicks;i++){
+        const frac = i/baseXTicks;
+        const xVal = minX + frac*(maxX-minX);
+        ticksValues.add(parseFloat(xVal.toFixed(4)));
+      }
+      if (tolMin != null) ticksValues.add(parseFloat(tolMin.toFixed(4)));
+      if (target != null) ticksValues.add(parseFloat(target.toFixed(4)));
+      if (tolMax != null) ticksValues.add(parseFloat(tolMax.toFixed(4)));
+
+      Array.from(ticksValues).sort((a,b)=>a-b).forEach(xVal=>{
+        const gx = scaleX(xVal);
+        svg.appendChild(elSVG('line',{
+          x1:gx,y1:m.t+PH,x2:gx,y2:m.t+PH+5,
+          stroke:'#475569', 'stroke-width':'1'
+        }));
+        const t = elSVG('text',{
+          x:gx, y:m.t+PH+18, class:'chart-text','text-anchor':'middle'
+        });
+        t.textContent = xVal.toFixed(2);
+        svg.appendChild(t);
+      });
+
+      if (tolMin != null){
+        const xSvg = scaleX(tolMin);
+        svg.appendChild(elSVG('line',{
+          x1:xSvg,y1:m.t,x2:xSvg,y2:m.t+PH,
+          stroke:'var(--tol)',
+          'stroke-width':'2'
+        }));
+      }
+      if (tolMax != null){
+        const xSvg = scaleX(tolMax);
+        svg.appendChild(elSVG('line',{
+          x1:xSvg,y1:m.t,x2:xSvg,y2:m.t+PH,
+          stroke:'var(--tol)',
+          'stroke-width':'2'
+        }));
+      }
+
+      if (target != null){
+        const tx = scaleX(target);
+        svg.appendChild(elSVG('line',{
+          x1:tx,y1:m.t,x2:tx,y2:m.t+PH,
+          stroke:'var(--target)',
+          'stroke-width':'2',
+          'stroke-dasharray':'6 4'
+        }));
+      }
+
+      const haveFullMeasures = allMeasuresValid();
+
+      if (haveFullMeasures && mean != null && sigma != null){
+        const path = [];
+        const steps = 400;
+        for(let i=0;i<=steps;i++){
+          const frac = i/steps;
+          const x = minX + frac*(maxX-minX);
+          const y = normalPDF(x, mean, sigma);
+          const px = scaleX(x);
+          const py = scaleY(y);
+          path.push((i===0?'M':'L') + px + ' ' + py);
+        }
+        svg.appendChild(elSVG('path',{
+          d:path.join(' '),
+          fill:'none',
+          stroke: '#60a5fa',
+          'stroke-width':'2'
+        }));
+
+        const mx = scaleX(mean);
+        svg.appendChild(elSVG('line',{
+          x1:mx,y1:m.t,x2:mx,y2:m.t+PH,
+          stroke:'var(--mean)',
+          'stroke-width':'2',
+          'stroke-dasharray':'4 4'
+        }));
+      }
+
+      const usedMeasures = measures.map(v => (typeof v === 'number' ? v : null));
+      const presentValues = usedMeasures.filter(v=>v!=null);
+      const clusters = clusterMeasures(presentValues);
+
+      for (let idx=0; idx<5; idx++){
+        const val = usedMeasures[idx];
+        if (val == null) continue;
+
+        const key = val.toFixed(4);
+        const cl = clusters.find(c => c.x.toFixed(4) === key);
+        const count = cl ? cl.indexes.length : 1;
+
+        const allIndexes = measures
+          .map((v,i)=>({v,i}))
+          .filter(o => o.v != null && o.v.toFixed(4) === key)
+          .map(o=>o.i);
+        const clusterIndex = allIndexes.indexOf(idx);
+
+        const baseX = scaleX(val);
+        const baseY = m.t + PH;
+
+        const spacing = 16;
+        const offset = (clusterIndex - (count-1)/2) * spacing;
+        const cy = baseY + offset;
+
+        const circle = elSVG('circle',{
+          cx:baseX, cy:cy, r:7,
+          class:'dot-measure',
+          'data-index': idx
+        });
+        svg.appendChild(circle);
+      }
+
+      if (!haveFullMeasures){
+        const { min, max } = getMeasureBounds();
+        hint.textContent =
+          `Entrez 5 mesures (≥ 0, entre ${min.toFixed(2)} et ${max.toFixed(2)}). ` +
+          `La courbe de Gauss sera tracée lorsque les 5 mesures seront renseignées.`;
+      } else if (mean != null && sigma != null){
+        const { min, max } = getMeasureBounds();
+        hint.textContent =
+          `Moyenne : ${mean.toFixed(3)} — Écart-type : ${sigma.toFixed(3)}. ` +
+          `Les mesures sont limitées à [${min.toFixed(2)} ; ${max.toFixed(2)}].`;
+      } else {
+        hint.textContent = 'Les mesures ne permettent pas encore de calculer une courbe.';
+      }
+
+      setupDrag();
+    }
+
+    // ---------- DRAG & DROP ----------
+    let dragging = null;
+
+    function setupDrag(){
+      const circles = svg.querySelectorAll('.dot-measure');
+      circles.forEach(c=>{
+        c.addEventListener('mousedown', startDrag);
+        c.addEventListener('touchstart', startDrag, {passive:false});
+      });
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', endDrag);
+      document.addEventListener('touchmove', onDrag, {passive:false});
+      document.addEventListener('touchend', endDrag);
+    }
+
+    function startDrag(evt){
+      if (!graphReady) return;
+      evt.preventDefault();
+      const circle = evt.currentTarget;
+      const idx = parseInt(circle.getAttribute('data-index'), 10);
+      const pt = svg.createSVGPoint();
+      const pos = evt.touches && evt.touches.length>0 ? evt.touches[0] : evt;
+      pt.x = pos.clientX; pt.y = pos.clientY;
+      const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+      dragging = { idx, startX:svgP.x };
+    }
+
+    function onDrag(evt){
+      if(!dragging) return;
+      evt.preventDefault();
+      const pt = svg.createSVGPoint();
+      const pos = evt.touches && evt.touches.length>0 ? evt.touches[0] : evt;
+      pt.x = pos.clientX; pt.y = pos.clientY;
+      const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+      const { minX, maxX } = computeDomain();
+      let xVal = minX + ((svgP.x - m.l)/PW) * (maxX - minX);
+      xVal = clampMeasure(xVal); // applique [tolMin - 0.5*plage ; tolMax + 0.5*plage]
+
+      measures[dragging.idx] = xVal;
+      measureInputs[dragging.idx].value = xVal.toFixed(3);
+
+      render();
+    }
+
+    function endDrag(){
+      dragging = null;
+    }
+
+    // ---------- VALIDATION TOLÉRANCES / CIBLE ----------
+    validateTolBtn.addEventListener('click', ()=>{
+      const minVal = parseNonNegative(tolMinInput.value);
+      const maxVal = parseNonNegative(tolMaxInput.value);
+      const targetVal = parseNonNegative(targetInput.value);
+
+      if (minVal == null || maxVal == null || targetVal == null){
+        alert('Merci de saisir : tolérance min ≥ 0, tolérance max ≥ 0, cible ≥ 0.');
+        return;
+      }
+      if (minVal >= maxVal){
+        alert('La tolérance min doit être strictement inférieure à la tolérance max.');
+        return;
+      }
+      if (targetVal < minVal || targetVal > maxVal){
+        alert('La cible doit vérifier : tolérance min ≤ cible ≤ tolérance max.');
+        return;
+      }
+
+      tolMin = minVal;
+      tolMax = maxVal;
+      target = targetVal;
+      graphReady = true;
+
+      measureInputs.forEach(inp=>{
+        inp.disabled = false;
+      });
+
+      measures = new Array(5).fill(null);
+      measureInputs.forEach(inp => inp.value = '');
+
+      render();
+    });
+
+    // ---------- INPUTS MESURES ----------
+    measureInputs.forEach((inp, i)=>{
+      // Pendant la frappe : on accepte n'importe quelle valeur ≥ 0 ou vide
+      inp.addEventListener('input', ()=>{
+        if (!graphReady) return;
+        const raw = inp.value;
+        if (raw === ''){
+          measures[i] = null;
+        } else {
+          const v = parseNonNegative(raw);
+          measures[i] = v; // peut être null si invalide
+        }
+        // pas de clamp ici, pour ne pas gêner la saisie "en cours"
+        render();
+      });
+
+      // À la sortie du champ : on clamp réellement dans les bornes autorisées
+      inp.addEventListener('blur', ()=>{
+        if (!graphReady) return;
+        let v = parseNonNegative(inp.value);
+        if (v == null){
+          measures[i] = null;
+          return render();
+        }
+        v = clampMeasure(v);
+        measures[i] = v;
+        inp.value = v.toFixed(3);
+        render();
+      });
+    });
+
+    // ---------- INIT ----------
+    render();
+  </script>
+</body>
+</html>
