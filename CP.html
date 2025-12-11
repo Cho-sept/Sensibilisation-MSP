@@ -133,9 +133,7 @@
   <div class="wrap">
     <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
     <h1>Jeu — Associe chaque image à la bonne étiquette</h1>
-     <p>La dispersion : La dispersion, c’est à quel point des valeurs s’éparpillent.<br>Si elles sont très regroupées, la dispersion est faible, si elles sont très éloignées les unes des autres, la dispersion est forte.<br><br> Le centrage : Le centrage, c’est où se situe la moyenne par rapport à la valeur cible et aux limites.<br>Si la moyenne est au milieu (proche de la cible), le centrage est bon, si elle est décalée vers la gauche ou la droite (proche d’un bord), le centrage est mauvais.</p> </p>
-
-
+    <p>La dispersion : La dispersion, c’est à quel point des valeurs s’éparpillent.<br>Si elles sont très regroupées, la dispersion est faible, si elles sont très éloignées les unes des autres, la dispersion est forte.<br><br> Le centrage : Le centrage, c’est où se situe la moyenne par rapport à la valeur cible et aux limites.<br>Si la moyenne est au milieu (proche de la cible), le centrage est bon, si elle est décalée vers la gauche ou la droite (proche d’un bord), le centrage est mauvais.</p>
 
     <div class="tabs" role="tablist" aria-label="Familles d’images">
       <button class="tab-btn active" data-family="cible" role="tab" aria-selected="true">Cibles</button>
@@ -177,15 +175,15 @@
     const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
 
     // Éléments
-    const tabs = $$('.tab-btn');
+    const tabs        = $$('.tab-btn');
     const resetTabBtn = $('#resetTab');
     const resetAllBtn = $('#resetAll');
-    const leftStack = $('#leftStack');
-    const rightStack = $('#rightStack');
-    const board = $('#board');
-    const linksSvg = $('#links');
-    const statusEl = $('#status');
-    const scoreEl = $('#score');
+    const leftStack   = $('#leftStack');
+    const rightStack  = $('#rightStack');
+    const board       = $('#board');
+    const linksSvg    = $('#links');
+    const statusEl    = $('#status');
+    const scoreEl     = $('#score');
 
     // IMPORTANT: chemin d’images locales (file:///)
     const BASE_PATH = '/Sensibilisation-MSP/Pics%20CP-Cpk/';
@@ -224,14 +222,17 @@
     // Règle d’association (image -> étiquette)
     const MAP_ID_TO_LABEL = { 1:'bad-bad', 2:'bad-good', 3:'good-bad', 4:'good-good' };
 
-    // État
-    let activeFamily = 'cible';
-    let selectedAnchor = null; // point sélectionné pour connexion par clic
-    let totalScore = { cible:0, voiture:0, courbe:0 };
-    const connections = new Set(); // stocke les objets connexion
-    const connByLeft = new Map();  // id -> conn
-    const connByRight = new Map(); // key -> conn
-    let tempPath = null;           // ligne temporaire pendant un glisser
+    // État par famille
+    const familyState = {
+      cible:   { initialized:false, leftCards:[], rightLabels:[], connections:new Set(), connByLeft:new Map(), connByRight:new Map() },
+      voiture: { initialized:false, leftCards:[], rightLabels:[], connections:new Set(), connByLeft:new Map(), connByRight:new Map() },
+      courbe:  { initialized:false, leftCards:[], rightLabels:[], connections:new Set(), connByLeft:new Map(), connByRight:new Map() },
+    };
+
+    let activeFamily   = 'cible';
+    let selectedAnchor = null;
+    let totalScore     = { cible:0, voiture:0, courbe:0 };
+    let tempPath       = null;
 
     // Utils
     function shuffle(arr){
@@ -248,14 +249,12 @@
       const s = totalScore;
       scoreEl.textContent = `Score: Cibles ${s.cible}/4 • Voitures ${s.voiture}/4 • Courbes ${s.courbe}/4`;
     }
-    // Coloration complète des mots-clés
     function makeLabelHtml(text){
       return text
         .replace(/\b(Mauvaise|Mauvais)\b/g, '<span class="bad">$1</span>')
         .replace(/\b(Bonne|Bon)\b/g, '<span class="good">$1</span>');
     }
 
-    // Anchor helpers
     function getAnchorCenter(anchor){
       const brBoard = board.getBoundingClientRect();
       const br = anchor.getBoundingClientRect();
@@ -273,120 +272,39 @@
       linksSvg.appendChild(p);
       return p;
     }
+
     function removeConnection(conn){
       if (!conn) return;
-      connections.delete(conn);
-      if (conn.leftId && connByLeft.get(conn.leftId) === conn) connByLeft.delete(conn.leftId);
-      if (conn.rightKey && connByRight.get(conn.rightKey) === conn) connByRight.delete(conn.rightKey);
+      const st = familyState[conn.family];
+      st.connections.delete(conn);
+      if (conn.leftId && st.connByLeft.get(conn.leftId) === conn) st.connByLeft.delete(conn.leftId);
+      if (conn.rightKey && st.connByRight.get(conn.rightKey) === conn) st.connByRight.delete(conn.rightKey);
       if (conn.path && conn.path.parentNode) conn.path.parentNode.removeChild(conn.path);
-      // Libérer les points
       if (conn.leftAnchor){ conn.leftAnchor.classList.remove('used'); conn.leftAnchor.dataset.connected = '0'; }
       if (conn.rightAnchor){ conn.rightAnchor.classList.remove('used'); conn.rightAnchor.dataset.connected = '0'; }
       refreshScoreForActiveFamily();
     }
+
     function refreshScoreForActiveFamily(){
+      const st = familyState[activeFamily];
       let correctCount = 0;
-      connections.forEach(c=>{
-        if (c.family === activeFamily && c.correct) correctCount++;
-      });
+      st.connections.forEach(c=>{ if (c.correct) correctCount++; });
       totalScore[activeFamily] = correctCount;
       updateScoreText();
     }
 
-    // Rendu d’un onglet
-    function renderFamily(fam){
-      activeFamily = fam;
-      board.setAttribute('data-family', fam); // styles dépendants de l’onglet
-      selectedAnchor = null;
-      setStatus('');
-      clear(leftStack);
-      clear(rightStack);
-      clear(linksSvg);
-      connections.clear(); connByLeft.clear(); connByRight.clear();
-      totalScore[fam] = 0; updateScoreText();
-
-      // Images (ordre aléatoire, empilées verticalement)
-      const imgs = shuffle(FAMILIES[fam]);
-      imgs.forEach(img=>{
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.dataset.id = String(img.id);
-
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = `Image N°${img.id}`;
-        card.appendChild(tag);
-
-        const im = document.createElement('img');
-        im.src = img.src;
-        im.alt = img.alt;
-        im.addEventListener('error', ()=>{
-          im.remove();
-          const em = document.createElement('div');
-          em.style.color = '#f87171';
-          em.style.padding = '0.7rem';
-          em.style.textAlign = 'center';
-          em.innerHTML = 'Image introuvable<br><small>(vérifiez BASE_PATH et le nom de fichier)</small>';
-          card.appendChild(em);
-        });
-        card.appendChild(im);
-
-        // Point de connexion (à droite de l'image, visible à l’extérieur)
-        const anchor = document.createElement('button');
-        anchor.className = 'anchor left';
-        anchor.type = 'button';
-        anchor.dataset.side = 'left';
-        anchor.dataset.id = String(img.id);
-        anchor.dataset.connected = '0';
-        anchor.setAttribute('aria-label', `Point de l’Image N°${img.id}`);
-        setupAnchorInteractions(anchor);
-        card.appendChild(anchor);
-
-        leftStack.appendChild(card);
-      });
-
-      // Étiquettes (ordre aléatoire, distribuées verticalement sans agrandir)
-      const lbls = shuffle(LABELS);
-      lbls.forEach(lbl=>{
-        const lab = document.createElement('div');
-        lab.className = 'label';
-        lab.dataset.key = lbl.key;
-
-        // Point de connexion (à gauche de l’étiquette, visible à l’extérieur)
-        const anchor = document.createElement('button');
-        anchor.className = 'anchor right';
-        anchor.type = 'button';
-        anchor.dataset.side = 'right';
-        anchor.dataset.key = lbl.key;
-        anchor.dataset.connected = '0';
-        anchor.setAttribute('aria-label', `Point de l’étiquette ${lbl.key}`);
-        setupAnchorInteractions(anchor);
-        lab.appendChild(anchor);
-
-        const tx = document.createElement('div');
-        tx.className = 'text';
-        tx.innerHTML = makeLabelHtml(lbl.title);
-        lab.appendChild(tx);
-
-        rightStack.appendChild(lab);
-      });
-
-      // Adapter la vue SVG aux dimensions du board
-      resizeSvgToBoard();
-    }
-
-    // Adapter le SVG à la taille réelle du plateau
     function resizeSvgToBoard(){
       const br = board.getBoundingClientRect();
       linksSvg.setAttribute('viewBox', `0 0 ${br.width} ${br.height}`);
     }
     window.addEventListener('resize', ()=>{
       resizeSvgToBoard();
-      // Replacer les chemins si la page bouge
-      connections.forEach(conn=>{
-        const p1 = getAnchorCenter(conn.leftAnchor);
-        const p2 = getAnchorCenter(conn.rightAnchor);
-        conn.path.setAttribute('d', makeCurvePath(p1, p2));
+      Object.values(familyState).forEach(st=>{
+        st.connections.forEach(conn=>{
+          const p1 = getAnchorCenter(conn.leftAnchor);
+          const p2 = getAnchorCenter(conn.rightAnchor);
+          if (conn.path) conn.path.setAttribute('d', makeCurvePath(p1, p2));
+        });
       });
       if (tempPath && tempPath._p1){
         const p1 = tempPath._p1;
@@ -394,9 +312,8 @@
       }
     });
 
-    // Interactions sur un point — clic simple (sélection) + glisser avec seuil
     function setupAnchorInteractions(anchor){
-      const DRAG_THRESHOLD = 6; // px pour basculer en mode drag
+      const DRAG_THRESHOLD = 6;
       let startX = 0, startY = 0, dragging = false;
 
       const handleClickSelection = ()=>{
@@ -458,10 +375,8 @@
           document.removeEventListener('pointerup', onUp);
 
           if (!dragging){
-            // Clic simple → sélection/désélection
             handleClickSelection();
           } else {
-            // Fin du drag → connecter si une ancre opposée est sous le pointeur
             const target = findAnchorUnderPointer(ev, anchor.dataset.side==='left' ? 'right' : 'left');
             if (target){
               connectAnchors(anchor, target);
@@ -476,9 +391,8 @@
       });
     }
 
-    // Trouver un point de l’autre côté sous le pointeur
     function findAnchorUnderPointer(ev, side){
-      const anchors = $$('.anchor.'+(side==='left'?'left':'right'), board);
+      const anchors = $$('.anchor.'+(side==='left'?'left':'right'));
       const x = ev.clientX, y = ev.clientY;
       for (const a of anchors){
         const r = a.getBoundingClientRect();
@@ -489,41 +403,35 @@
       return null;
     }
 
-    // Créer une connexion entre 2 points
     function connectAnchors(a1, a2){
-      const leftAnchor = a1.dataset.side==='left' ? a1 : a2;
-      const rightAnchor = a1.dataset.side==='right' ? a1 : a2;
+      const st = familyState[activeFamily];
+      const leftAnchor  = a1.dataset.side==='left' ? a1 : a2;
+      const rightAnchor = a1.dataset.side==='right'? a1 : a2;
 
-      // Libérer connexions existantes si utilisées
-      const oldL = connByLeft.get(Number(leftAnchor.dataset.id));
-      const oldR = connByRight.get(rightAnchor.dataset.key);
+      const oldL = st.connByLeft.get(Number(leftAnchor.dataset.id));
+      const oldR = st.connByRight.get(rightAnchor.dataset.key);
       if (oldL) removeConnection(oldL);
       if (oldR) removeConnection(oldR);
 
-      // Positions et chemin
       const p1 = getAnchorCenter(leftAnchor);
       const p2 = getAnchorCenter(rightAnchor);
       const path = addSvgPath(makeCurvePath(p1, p2), 'link');
 
-      // Évaluer correct/incorrect
-      const id = Number(leftAnchor.dataset.id);
-      const key = rightAnchor.dataset.key;
+      const id   = Number(leftAnchor.dataset.id);
+      const key  = rightAnchor.dataset.key;
       const correct = (MAP_ID_TO_LABEL[id] === key);
       path.classList.add(correct ? 'correct' : 'wrong');
 
-      // Stocker connexion
       const conn = { family: activeFamily, leftId:id, rightKey:key, leftAnchor, rightAnchor, path, correct };
-      connections.add(conn);
-      connByLeft.set(id, conn);
-      connByRight.set(key, conn);
+      st.connections.add(conn);
+      st.connByLeft.set(id, conn);
+      st.connByRight.set(key, conn);
 
-      // Marquer points
       leftAnchor.classList.add('used');
       rightAnchor.classList.add('used');
       leftAnchor.dataset.connected = '1';
       rightAnchor.dataset.connected = '1';
 
-      // Cliquer sur une ligne pour la supprimer
       path.addEventListener('click', ()=>{
         removeConnection(conn);
         setStatus('Liaison supprimée.');
@@ -533,36 +441,162 @@
       refreshScoreForActiveFamily();
     }
 
-    // Boutons
+    // Construction initiale d’une famille
+    function buildFamily(fam){
+      const st = familyState[fam];
+      st.connections.clear();
+      st.connByLeft.clear();
+      st.connByRight.clear();
+      st.leftCards  = [];
+      st.rightLabels = [];
+
+      const imgs = shuffle(FAMILIES[fam]);
+      imgs.forEach(img=>{
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.family = fam;
+        card.dataset.id = String(img.id);
+
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = `Image N°${img.id}`;
+        card.appendChild(tag);
+
+        const im = document.createElement('img');
+        im.src = img.src;
+        im.alt = img.alt;
+        im.addEventListener('error', ()=>{
+          im.remove();
+          const em = document.createElement('div');
+          em.style.color = '#f87171';
+          em.style.padding = '0.7rem';
+          em.style.textAlign = 'center';
+          em.innerHTML = 'Image introuvable<br><small>(vérifiez BASE_PATH et le nom de fichier)</small>';
+          card.appendChild(em);
+        });
+        card.appendChild(im);
+
+        const anchor = document.createElement('button');
+        anchor.className = 'anchor left';
+        anchor.type = 'button';
+        anchor.dataset.side = 'left';
+        anchor.dataset.id = String(img.id);
+        anchor.dataset.connected = '0';
+        anchor.setAttribute('aria-label', `Point de l’Image N°${img.id}`);
+        setupAnchorInteractions(anchor);
+        card.appendChild(anchor);
+
+        st.leftCards.push(card);
+      });
+
+      const lbls = shuffle(LABELS);
+      lbls.forEach(lbl=>{
+        const lab = document.createElement('div');
+        lab.className = 'label';
+        lab.dataset.family = fam;
+        lab.dataset.key = lbl.key;
+
+        const anchor = document.createElement('button');
+        anchor.className = 'anchor right';
+        anchor.type = 'button';
+        anchor.dataset.side = 'right';
+        anchor.dataset.key = lbl.key;
+        anchor.dataset.connected = '0';
+        anchor.setAttribute('aria-label', `Point de l’étiquette ${lbl.key}`);
+        setupAnchorInteractions(anchor);
+        lab.appendChild(anchor);
+
+        const tx = document.createElement('div');
+        tx.className = 'text';
+        tx.innerHTML = makeLabelHtml(lbl.title);
+        lab.appendChild(tx);
+
+        st.rightLabels.push(lab);
+      });
+
+      totalScore[fam] = 0;
+      updateScoreText();
+      st.initialized = true;
+    }
+
+    // Afficher une famille dans les stacks (sans recréer les éléments)
+    function showFamily(fam){
+      activeFamily = fam;
+      board.setAttribute('data-family', fam);
+      selectedAnchor = null;
+      setStatus('');
+
+      const st = familyState[fam];
+
+      clear(leftStack);
+      clear(rightStack);
+
+      st.leftCards.forEach(card => leftStack.appendChild(card));
+      st.rightLabels.forEach(lab => rightStack.appendChild(lab));
+
+      clear(linksSvg);
+      st.connections.forEach(conn=>{
+        const p1 = getAnchorCenter(conn.leftAnchor);
+        const p2 = getAnchorCenter(conn.rightAnchor);
+        const path = addSvgPath(makeCurvePath(p1, p2), 'link');
+        if (conn.correct) path.classList.add('correct'); else path.classList.add('wrong');
+        conn.path = path;
+        path.addEventListener('click', ()=>{
+          removeConnection(conn);
+          setStatus('Liaison supprimée.');
+        });
+      });
+
+      resizeSvgToBoard();
+      refreshScoreForActiveFamily();
+    }
+
     function resetTab(){
-      renderFamily(activeFamily);
+      if (!confirm('Voulez-vous vraiment réinitialiser uniquement cet onglet ?')) return;
+      const fam = activeFamily;
+      buildFamily(fam);
+      showFamily(fam);
       setStatus('Onglet réinitialisé: images et étiquettes mélangées. Liaisons effacées.');
     }
+
     function resetAll(){
+      if (!confirm('Voulez-vous vraiment tout réinitialiser (tous les onglets) ?')) return;
       totalScore = { cible:0, voiture:0, courbe:0 };
-      renderFamily(activeFamily);
+      Object.keys(familyState).forEach(f=>{
+        familyState[f].initialized = false;
+        familyState[f].connections.clear();
+        familyState[f].connByLeft.clear();
+        familyState[f].connByRight.clear();
+        familyState[f].leftCards = [];
+        familyState[f].rightLabels = [];
+      });
+      buildFamily(activeFamily);
+      showFamily(activeFamily);
       setStatus('Jeu réinitialisé: scores remis à zéro et contenu mélangé.');
     }
     resetTabBtn.addEventListener('click', resetTab);
     resetAllBtn.addEventListener('click', resetAll);
 
-    // Onglets
     tabs.forEach(btn=>{
       btn.addEventListener('click', ()=>{
+        const fam = btn.dataset.family;
         tabs.forEach(b=>{
           const active = b===btn;
           b.classList.toggle('active', active);
           b.setAttribute('aria-selected', active?'true':'false');
         });
-        renderFamily(btn.dataset.family);
+
+        if (!familyState[fam].initialized){
+          buildFamily(fam);
+        }
+        showFamily(fam); // pas de reset; on réutilise les mêmes cartes/labels
       });
     });
 
     // Init
-    renderFamily(activeFamily);
+    buildFamily(activeFamily);
+    showFamily(activeFamily);
     updateScoreText();
   </script>
 </body>
 </html>
-
-
