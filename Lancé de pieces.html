@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Histogramme — Lancers de pièce</title>
+  <meta name="theme-color" content="#60a5fa" />
+  <style>
+    :root{
+      --bg:#0b1020; --fg:#e5e7eb; --muted:#a3b1c6;
+      --accent:#60a5fa; --panel:#141a2f; --border:#263046;
+      --bar:#1e3a8a; --grid:#334155;
+    }
+    html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1200px;margin:0 auto;padding:1rem 1.2rem 2rem}
+    a.back-link, a.back-link:visited { color:#fff; text-decoration:none; }
+    a.back-link:hover, a.back-link:focus-visible { color:#e5e7eb; outline:2px solid #e5e7eb; outline-offset:2px; }
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:.8rem;padding:1rem}
+    .chart-wrap{padding:0}
+    .chart-svg{width:100%;height:auto;display:block}
+    .chart-grid{stroke:var(--grid);stroke-width:1;opacity:.4}
+    .bar-rect{fill:var(--bar);opacity:.88}
+    .chart-text{fill:#cbd5e1;font:600 13px/1 system-ui,Segoe UI,Roboto}
+    .axis-label{fill:#cbd5e1;font-weight:800}
+    .hint{color:var(--muted);text-align:center;margin:.5rem 0 0}
+
+    .buttons-layer{
+      position:relative;
+      margin-top:1rem;
+    }
+    .round-btn{
+      position:absolute; top:0;
+      width:66px;height:66px;border-radius:9999px;
+      background:transparent;border:2px solid var(--accent);
+      color:var(--accent);font-weight:900;font-size:18px;
+      display:flex;align-items:center;justify-content:center;
+      text-align:center;cursor:pointer;user-select:none;
+      transition:.12s ease;
+    }
+    .round-btn:hover{background:var(--accent);color:#0b1020;transform:translateY(-1px)}
+    .round-btn:active{transform:translateY(0)}
+
+    .controls{display:flex;justify-content:center;gap:.6rem;margin-top:1rem;flex-wrap:wrap;align-items:center}
+    .ctl-btn{
+      padding:.6rem 1rem;border-radius:.55rem;border:2px solid var(--accent);
+      background:transparent;color:var(--accent);font-weight:900;cursor:pointer;user-select:none;
+      transition:.12s ease;
+    }
+    .ctl-btn:hover{background:var(--accent);color:#0b1020;transform:translateY(-1px)}
+    .ctl-btn:active{transform:translateY(0)}
+
+    .input-inline{display:flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.95rem}
+    .input-inline input{
+      width:4.5rem;padding:.3rem .4rem;border-radius:.4rem;
+      border:1px solid var(--border);background:#020617;color:var(--fg);
+    }
+
+    @media (max-width:680px){
+      .round-btn{width:58px;height:58px;font-size:17px}
+    }
+    @media (max-width:520px){
+      .round-btn{width:52px;height:52px;font-size:16px}
+    }
+    @media (prefers-reduced-motion: reduce){
+      *{transition:none !important;scroll-behavior:auto !important}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p><a href="index.html" class="back-link">← Retour à l’accueil</a></p>
+    <h1>Lancers de pièce — histogramme des nombres de faces</h1>
+
+    <section class="panel chart-wrap">
+      <svg id="chartCoin" class="chart-svg" viewBox="0 0 1000 520"
+           role="img"
+           aria-label="Histogramme du nombre de faces obtenues sur N lancers de pièce"></svg>
+      <p id="hintCoin" class="hint">
+        Choisissez un nombre de lancers N, puis cliquez sur un bouton 0..N pour enregistrer le nombre de faces observées.
+      </p>
+    </section>
+
+    <div id="btnsCoin" class="buttons-layer"
+         role="group"
+         aria-label="Ajouter une occurrence pour un certain nombre de faces"></div>
+
+    <div id="ctrlsCoin" class="controls">
+      <div class="input-inline">
+        <label for="nThrows">Nombre de lancers N :</label>
+        <input id="nThrows" type="number" min="1" max="50" value="10" />
+        <button id="applyN" class="ctl-btn" type="button">Appliquer</button>
+      </div>
+      <button id="resetCoin" class="ctl-btn" type="button">Reset</button>
+    </div>
+  </div>
+
+  <script>
+    // ---------- CONFIG GÉNÉRALE POUR LA PIÈCE ----------
+    const chartCoin = document.querySelector('#chartCoin');
+    const hintCoin  = document.querySelector('#hintCoin');
+    const btnsCoin  = document.querySelector('#btnsCoin');
+    const ctrlsCoin = document.querySelector('#ctrlsCoin');
+    const inputN    = document.querySelector('#nThrows');
+    const applyNBtn = document.querySelector('#applyN');
+    const resetCoinBtn = document.querySelector('#resetCoin');
+
+    const storeCoin = {
+      get(k, f=null){ try{ return JSON.parse(localStorage.getItem(k)) ?? f; } catch { return f; } },
+      set(k, v){ localStorage.setItem(k, JSON.stringify(v)); }
+    };
+    const KCoin = {
+      n: 'coin:nThrows:v1',
+      counts: 'coin:counts:v1'
+    };
+
+    function elCoin(name, attrs={}){
+      const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+      for (const k in attrs){ e.setAttribute(k, attrs[k]); }
+      return e;
+    }
+
+    // ---------- ÉTAT : N et tableau de comptes [0..N] ----------
+    function getN(){
+      const saved = storeCoin.get(KCoin.n, 10);
+      return typeof saved === 'number' && saved > 0 ? saved : 10;
+    }
+    function setN(n){
+      storeCoin.set(KCoin.n, n);
+    }
+
+    function getCountsCoin(){
+      const N = getN();
+      const a = storeCoin.get(KCoin.counts, null);
+      if (Array.isArray(a) && a.length === (N+1)) return a;
+      return new Array(N+1).fill(0);
+    }
+    function setCountsCoin(arr){
+      storeCoin.set(KCoin.counts, arr);
+      renderChartCoin();
+      positionButtonsCoin();
+    }
+
+    // ---------- RENDU DE L'HISTOGRAMME ----------
+    function renderChartCoin(){
+      const N = getN();
+      const counts = getCountsCoin();
+      chartCoin.innerHTML = '';
+
+      const m = { l:70, r:30, t:24, b:36 };
+      const W = 1000, H = 520;
+      const PW = W - m.l - m.r, PH = H - m.t - m.b;
+
+      // cadre
+      chartCoin.appendChild(elCoin('rect', {
+        x:m.l, y:m.t, width:PW, height:PH,
+        fill:'none', stroke:'rgba(148,163,184,.32)'
+      }));
+
+      const total = counts.reduce((s,v)=>s+v,0);
+      hintCoin.textContent = total===0
+        ? `Choisissez N, puis cliquez sur un bouton 0 à ${N} pour incrémenter la barre correspondante.`
+        : '';
+
+      const maxC = Math.max(1, ...counts);
+      const yTicks = Math.max(5, Math.ceil(maxC/3));
+
+      for (let i=0;i<=yTicks;i++){
+        const frac = i / yTicks;
+        const gy = m.t + PH - frac * PH;
+        chartCoin.appendChild(elCoin('line',{
+          x1:m.l,y1:gy,x2:m.l+PW,y2:gy,class:'chart-grid'
+        }));
+        const lbl = elCoin('text',{
+          x:m.l-10, y:gy+4, class:'chart-text', 'text-anchor':'end'
+        });
+        lbl.textContent = Math.round(frac * maxC);
+        chartCoin.appendChild(lbl);
+      }
+
+      const nBins = N + 1; // 0..N faces
+      const stepW = PW / nBins;
+      const barW = stepW * 0.70;
+      const scaleY = c => (c/maxC) * (PH * 0.92);
+
+      for (let k=0;k<=N;k++){
+        const c = counts[k] || 0;
+        const bh = scaleY(c);
+        const bx = m.l + k*stepW + (stepW - barW)/2;
+        const by = m.t + PH - bh;
+
+        chartCoin.appendChild(elCoin('rect', {
+          x:bx, y:by, width:barW, height:bh, class:'bar-rect'
+        }));
+
+        if (c > 0){
+          const t = elCoin('text', {
+            x:bx + barW/2, y:by - 6,
+            'text-anchor':'middle',
+            fill:'#93c5fd',
+            style:'font-weight:800'
+          });
+          t.textContent = c;
+          chartCoin.appendChild(t);
+        }
+
+        // optionnel : labels en bas (0..N)
+        const xt = elCoin('text', {
+          x:bx + barW/2,
+          y:m.t + PH + 18,
+          'text-anchor':'middle',
+          class:'chart-text'
+        });
+        xt.textContent = k;
+        chartCoin.appendChild(xt);
+      }
+
+      // Axe Y
+      const yl = elCoin('text',{
+        x:22,y:m.t+PH/2,class:'axis-label','text-anchor':'middle',
+        transform:`rotate(-90 22 ${m.t+PH/2})`
+      });
+      yl.textContent = 'Comptes';
+      chartCoin.appendChild(yl);
+
+      positionButtonsCoin();
+      syncResetToChartCoin({ viewW:W, marginL:m.l, marginR:m.r });
+    }
+
+    // ---------- BOUTONS 0..N ----------
+    function buildButtonsCoin(){
+      const N = getN();
+      btnsCoin.innerHTML = '';
+
+      for (let k=0;k<=N;k++){
+        const btn = document.createElement('button');
+        btn.className = 'round-btn';
+        btn.type = 'button';
+        btn.textContent = String(k);
+        btn.setAttribute('data-index', k);
+        btn.setAttribute('aria-label', `Ajouter un cas avec ${k} faces`);
+        btn.addEventListener('click', ()=>{
+          const Nlocal = getN();
+          let arr = getCountsCoin();
+          // Si N a changé entre temps, on réajuste
+          if (arr.length !== Nlocal+1){
+            arr = new Array(Nlocal+1).fill(0);
+          }
+          arr[k] = (arr[k] || 0) + 1;
+          setCountsCoin(arr);
+        });
+        btnsCoin.appendChild(btn);
+    }
+
+      positionButtonsCoin();
+    }
+
+    function positionButtonsCoin(){
+      const rect = chartCoin.getBoundingClientRect();
+      const svgWidthPx = rect.width;
+      const viewW = 1000, marginL = 70, marginR = 30;
+      const leftPx = svgWidthPx * (marginL / viewW);
+      const rightPx = svgWidthPx * (marginR / viewW);
+      const plotW = svgWidthPx - leftPx - rightPx;
+
+      btnsCoin.style.width = svgWidthPx + 'px';
+      btnsCoin.style.marginLeft = 'auto';
+      btnsCoin.style.marginRight = 'auto';
+      btnsCoin.style.paddingLeft = '0';
+      btnsCoin.style.paddingRight = '0';
+
+      const buttons = Array.from(btnsCoin.children);
+      if (buttons.length === 0) return;
+
+      let maxH = 0;
+      for (const b of buttons) maxH = Math.max(maxH, b.getBoundingClientRect().height);
+      btnsCoin.style.height = Math.ceil(maxH) + 'px';
+
+      const nBins = buttons.length;
+      const stepWpx = plotW / nBins;
+
+      buttons.forEach((b, i)=>{
+        const bw = b.getBoundingClientRect().width;
+        const centerX = leftPx + (i + 0.5) * stepWpx;
+        const left = centerX - bw / 2;
+        b.style.left = left + 'px';
+      });
+    }
+
+    function syncResetToChartCoin({ viewW, marginL, marginR }){
+      const rect = chartCoin.getBoundingClientRect();
+      const svgWidthPx = rect.width;
+      const leftPx = svgWidthPx * (marginL / viewW);
+      const rightPx = svgWidthPx * (marginR / viewW);
+
+      ctrlsCoin.style.width = svgWidthPx + 'px';
+      ctrlsCoin.style.marginLeft = 'auto';
+      ctrlsCoin.style.marginRight = 'auto';
+      ctrlsCoin.style.paddingLeft = leftPx + 'px';
+      ctrlsCoin.style.paddingRight = rightPx + 'px';
+    }
+
+    // ---------- EVENTS : changement de N, reset, resize ----------
+    applyNBtn.addEventListener('click', ()=>{
+      let n = parseInt(inputN.value, 10);
+      if (!Number.isFinite(n) || n < 1) n = 1;
+      if (n > 50) n = 50; // limite raisonnable
+      inputN.value = n;
+      setN(n);
+      // à chaque changement de N, on remet les compteurs à zéro (plus simple)
+      setCountsCoin(new Array(n+1).fill(0));
+      buildButtonsCoin();
+      renderChartCoin();
+    });
+
+    resetCoinBtn.addEventListener('click', ()=>{
+      if (!confirm('Effacer tous les comptes ?')) return;
+      const N = getN();
+      setCountsCoin(new Array(N+1).fill(0));
+    });
+
+    window.addEventListener('resize', ()=>{
+      positionButtonsCoin();
+      syncResetToChartCoin({viewW:1000,marginL:70,marginR:30});
+    });
+
+    // ---------- INIT ----------
+    (function init(){
+      const N = getN();
+      inputN.value = N;
+      buildButtonsCoin();
+      renderChartCoin();
+    })();
+  </script>
+</body>
+</html>
