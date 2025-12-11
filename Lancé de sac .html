@@ -17,6 +17,8 @@
     .wrap{ max-width:1100px; margin:0 auto; padding:1rem; }
     a{ color:inherit; }
     *{ box-sizing:border-box; }
+    a.back, a.back:visited{color:#fff;text-decoration:none}
+    a.back:hover, a.back:focus-visible{color:#e5e7eb;outline:2px solid #e5e7eb;outline-offset:2px}
     header{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.5rem 0 1rem; }
     .brand{ font-weight:800; letter-spacing:.2px; }
     .brand small{ display:block; color:var(--muted); font-weight:600; font-size:.9rem; margin-top:.15rem; }
@@ -90,6 +92,7 @@
 </head>
 <body>
   <div class="wrap">
+    <p><a class="back" href="index.html">← Retour à l’accueil</a></p>
     <header>
       <div class="brand">
         Formation MSP
@@ -316,3 +319,4 @@
   </script>
 </body>
 </html>
+
